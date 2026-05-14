@@ -331,32 +331,6 @@
         showAdminPage();
         loadUsersList();
     }
-        panel.innerHTML = `
-        <div class="page-card">
-            <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px">
-                <span style="background:linear-gradient(135deg,#f59e0b,#ef4444);width:12px;height:12px;border-radius:50%;display:inline-block"></span>
-                <h1>Admin Panel</h1>
-            </div>
-            <p class="muted" style="margin-bottom:24px">Управление ролями пользователей. Вы можете назначать роли RGB-Squad и RGB-Academy.</p>
-            <div style="display:grid;gap:14px;margin-bottom:24px">
-                <input type="text" id="adminUsername" placeholder="Twitch username" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;">
-                <select id="adminRole" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;">
-                    <option value="">— Без роли —</option>
-                    <option value="squad">RGB-Squad</option>
-                    <option value="academy">RGB-Academy</option>
-                    <option value="admin">Admin</option>
-                </select>
-                <button class="btn primary" onclick="assignRole()">Назначить роль</button>
-            </div>
-            <div id="adminResult"></div>
-            <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
-                <p class="muted" style="margin-bottom:12px">Все пользователи в базе:</p>
-                <div id="userList"></div>
-            </div>
-        </div>`;
-        showAdminPage();
-        loadUsersList();
-    }
 
     function showAdminPage() {
         pages.forEach(p => document.getElementById(p).classList.add('hidden'));
@@ -782,21 +756,6 @@
             </main>
         </div>`;
         show('creatorPage');
-    }
-
-    function openSquad(key) {
-        activeNav('squad');
-        const s = squads[key];
-        document.getElementById('squadPage').innerHTML = `<div class="page-card"><button class="btn" onclick="renderHome();activeNav('squad')">← Назад к подразделениям</button><p class="section-label" style="margin-top:30px">${s.label}</p><h1 style="margin-bottom:28px">${s.title}</h1><div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Creator</th><th>Watch Time</th><th>Avg Viewers</th><th>Followers</th><th>Growth</th><th>Consistency</th><th>Status</th><th>Language</th></tr></thead><tbody>${s.members.map((m, i) => `<tr onclick="openCreator('${m.name}')"><td>${i + 1}</td><td><div class="creator-cell"><div class="mini-avatar"></div><div><b>${m.name}</b><p class="muted">${m.role}</p></div></div></td><td>${m.hours}</td><td>${m.avg}</td><td>${m.followers}</td><td style="color:var(--green);font-weight:800">${m.gain}</td><td>${m.consistency}</td><td><span class="tag">Affiliate</span></td><td>Russian</td></tr>`).join('')}</tbody></table></div></div>`;
-        show('squadPage');
-    }
-
-    function openCreator(name) {
-        const c = allMembers.find(m => m.name === name);
-        if (!c) return;
-        document.getElementById('creatorPage').innerHTML = `<div class="dash-grid"><div class="left-stack"><div class="profile big"><button class="btn" onclick="renderHome();activeNav('squad')">← Назад</button><div class="profile-head" style="margin-top:24px"><div class="avatar"></div><div><h2>${c.name}</h2><p class="muted">${c.role}</p></div></div><div class="metric-grid">${metric('Followers', c.followers)}${metric('Avg Viewers', c.avg)}${metric('Watch Hours', c.watch)}${metric('Momentum', c.momentum)}</div></div><div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:18px"><div><h2>Retention</h2><p class="muted">Returning Viewer Rate</p></div><b style="color:var(--green)">${c.retention}%</b></div><div class="bar"><span style="--w:${c.retention}%"></span></div><div class="metric" style="margin-top:20px"><p>Community Density</p><strong>${c.density}</strong></div></div></div><main class="dashboard-main card"><div class="dash-head"><div><h1>Growth Dashboard</h1><p class="muted">Twitch analytics & forecasting system</p></div><div><p class="muted">Live Status</p><b style="color:var(--green)">${c.status}</b></div></div><div class="analytics-grid"><section class="card span-8"><div style="display:flex;justify-content:space-between"><div><h2>Viewer Momentum</h2><p class="muted">Organic growth acceleration</p></div><b style="color:var(--green);font-size:28px">${c.momentum}</b></div><canvas id="chart" class="chart"></canvas></section><section class="card span-4"><h2>Forecast</h2><p class="muted">Projected avg viewers</p>${c.forecast.map(f => `<div class="content-item"><span>${f[0]}</span><b>${f[1]}</b></div>`).join('')}</section><section class="card span-6"><h2>Top Content</h2>${c.content.map(x => `<div class="content-item"><span>${x[0]}</span><b>${x[1]}</b></div><div class="bar"><span style="--w:${x[2]}%"></span></div>`).join('')}</section><section class="card span-6"><h2>Stream Consistency</h2><p class="muted">Frequency and schedule stability</p><div class="top-grid" style="grid-template-columns:repeat(2,1fr);margin-top:18px">${metric('Weekly Hours', c.hours)}${metric('Active Days', c.consistency)}${metric('Follower Gain', c.gain)}${metric('Avg Viewers', c.avg)}</div></section></div></main></div>`;
-        show('creatorPage');
-        drawChart();
     }
 
     function drawChart() {
