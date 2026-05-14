@@ -128,6 +128,7 @@
         <section id="homePage" class="fade"></section>
         <section id="squadPage" class="hidden fade"></section>
         <section id="creatorPage" class="hidden fade"></section>
+        <section id="viewersPage" class="hidden fade"></section>
         <section id="infoPage" class="hidden fade"></section>
     </main>
 </div>
@@ -541,7 +542,63 @@
                 if (ve && !ve.classList.contains('hidden')) {
                     this.renderTable();
                 }
+
+                // Save to Firebase every 30s
+                const now = Date.now();
+                if (!this._lastSaveTime || now - this._lastSaveTime > 30000) {
+                    this._lastSaveTime = now;
+                    this._saveToFirebase();
+                }
             } catch (e) {}
+        },
+
+        _saveToFirebase() {
+            const channelLogin = this._broadcasterLogin;
+            if (!channelLogin || Object.keys(this.viewers).length === 0) return;
+            (async () => {
+                try {
+                    const vids = Object.keys(this.viewers);
+                    const [channelSnap, allSnap] = await Promise.all([
+                        db.ref('viewer-history/' + channelLogin).once('value'),
+                        db.ref('all-viewers').once('value')
+                    ]);
+                    const existingChannel = channelSnap.val() || {};
+                    const existingAll = allSnap.val() || {};
+                    const updates = {};
+                    for (const vid of vids) {
+                        const v = this.viewers[vid];
+                        if (!v.login) continue;
+                        const eCh = existingChannel[vid] || {};
+                        const eAll = existingAll[vid] || {};
+                        const eChCh = (eAll.channels && eAll.channels[channelLogin]) || {};
+                        const chFirst = Math.min(v.firstSeen, eCh.firstSeen || v.firstSeen);
+                        const chLast = Math.max(v.lastSeen, eCh.lastSeen || v.lastSeen);
+                        const allFirst = Math.min(v.firstSeen, eAll.firstSeen || v.firstSeen);
+                        const allLast = Math.max(v.lastSeen, eAll.lastSeen || 0);
+                        const cp = 'viewer-history/' + channelLogin + '/' + vid + '/';
+                        updates[cp + 'login'] = v.login;
+                        updates[cp + 'displayName'] = v.displayName || v.login;
+                        updates[cp + 'profileImageUrl'] = v.profileImageUrl || '';
+                        updates[cp + 'createdAt'] = v.createdAt || '';
+                        updates[cp + 'description'] = v.description || '';
+                        updates[cp + 'firstSeen'] = chFirst;
+                        updates[cp + 'lastSeen'] = chLast;
+                        const ap = 'all-viewers/' + vid + '/';
+                        updates[ap + 'login'] = v.login;
+                        updates[ap + 'displayName'] = v.displayName || v.login;
+                        updates[ap + 'profileImageUrl'] = v.profileImageUrl || '';
+                        updates[ap + 'createdAt'] = v.createdAt || '';
+                        updates[ap + 'description'] = v.description || '';
+                        updates[ap + 'firstSeen'] = allFirst;
+                        updates[ap + 'lastSeen'] = allLast;
+                        updates[ap + 'channels/' + channelLogin + '/firstSeen'] = Math.min(v.firstSeen, eChCh.firstSeen || v.firstSeen);
+                        updates[ap + 'channels/' + channelLogin + '/lastSeen'] = chLast;
+                    }
+                    await db.ref().update(updates);
+                } catch (e) {
+                    console.warn('Firebase viewer save error:', e);
+                }
+            })();
         },
 
         analyzeViewer(v) {
@@ -869,7 +926,7 @@
             ]
         }
     };
-    const pages = ['homePage', 'squadPage', 'creatorPage', 'infoPage'];
+    const pages = ['homePage', 'squadPage', 'creatorPage', 'viewersPage', 'infoPage'];
     const allMembers = [...squads.main.members, ...squads.academy.members];
 
     function show(id) {
@@ -1264,9 +1321,118 @@
         });
     }
 
+    let _viewersFilterChannel = '';
+    let _viewersSearchQuery = '';
+
+    async function renderViewersPage() {
+        viewerTracker.stop();
+        activeNav('viewers');
+
+        const [allSnap, members] = await Promise.all([
+            db.ref('all-viewers').once('value'),
+            loadTwitchUsers()
+        ]);
+        const allViewers = allSnap.val() || {};
+        const allMembers = members.filter(m => m.roles && (m.roles.squad || m.roles.academy));
+
+        let viewerList = Object.entries(allViewers).map(([id, v]) => ({
+            id,
+            login: v.login || '',
+            displayName: v.displayName || v.login || id,
+            profileImageUrl: v.profileImageUrl || '',
+            firstSeen: v.firstSeen || 0,
+            lastSeen: v.lastSeen || 0,
+            channels: v.channels || {},
+            channelCount: Object.keys(v.channels || {}).length,
+            createdAt: v.createdAt || '',
+            description: v.description || ''
+        }));
+
+        if (_viewersFilterChannel) {
+            viewerList = viewerList.filter(v => v.channels[_viewersFilterChannel]);
+        }
+
+        if (_viewersSearchQuery) {
+            const q = _viewersSearchQuery.toLowerCase();
+            viewerList = viewerList.filter(v =>
+                v.login.toLowerCase().includes(q) ||
+                v.displayName.toLowerCase().includes(q)
+            );
+        }
+
+        viewerList.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+
+        // Check which viewers are currently watching any RGB streamer (from memory)
+        const liveViewerIds = new Set();
+        for (const m of allMembers) {
+            const v = viewerTracker.viewers;
+            for (const vid in v) {
+                liveViewerIds.add(vid);
+            }
+        }
+
+        const totalUnique = Object.keys(allViewers).length;
+
+        document.getElementById('viewersPage').innerHTML = `
+        <div class="page-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;margin-bottom:24px">
+                <div>
+                    <h1>👁 Зрители которые смотрят</h1>
+                    <p class="muted" style="margin-top:6px">Всего уникальных зрителей: ${totalUnique} | На этой странице: ${viewerList.length}</p>
+                </div>
+                <button class="btn" onclick="renderViewersPage()" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>
+            </div>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;align-items:center">
+                <select id="viewersChannelFilter" onchange="_viewersFilterChannel=this.value;renderViewersPage()" style="padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;min-width:160px">
+                    <option value="">Все каналы</option>
+                    ${allMembers.map(m => `
+                        <option value="${m.login}" ${_viewersFilterChannel === m.login ? 'selected' : ''}>${m.displayName}</option>
+                    `).join('')}
+                </select>
+                <input type="text" id="viewersSearch" placeholder="Поиск по логину или имени..."
+                    oninput="_viewersSearchQuery=this.value;renderViewersPage()"
+                    style="flex:1;min-width:200px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;"
+                    value="${_viewersSearchQuery}">
+            </div>
+
+            ${viewerList.length ? `
+            <div style="overflow-x:auto;border-radius:20px;border:1px solid var(--border)">
+                <table class="table" style="min-width:900px">
+                    <thead><tr>
+                        <th>Зритель</th>
+                        <th>Первый раз</th>
+                        <th>Последний раз</th>
+                        <th>Каналы</th>
+                        <th>Аккаунт</th>
+                        <th>Сейчас</th>
+                    </tr></thead>
+                    <tbody>${viewerList.map(v => {
+                        const firstStr = v.firstSeen ? new Date(v.firstSeen).toLocaleDateString('ru-RU', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+                        const lastStr = v.lastSeen ? new Date(v.lastSeen).toLocaleDateString('ru-RU', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+                        const daysOld = v.createdAt ? Math.floor((Date.now() - new Date(v.createdAt).getTime()) / 86400000) : null;
+                        const chList = Object.keys(v.channels);
+                        const isOnline = liveViewerIds.has(v.id);
+                        return `<tr>
+                            <td><div class="creator-cell">
+                                ${v.profileImageUrl ? '<img class="mini-avatar" src="' + v.profileImageUrl + '" style="object-fit:cover;border-radius:50%">' : '<div class="mini-avatar"></div>'}
+                                <div><b>${v.displayName}</b><p class="muted">@${v.login}</p></div>
+                            </div></td>
+                            <td style="font-size:13px">${firstStr}</td>
+                            <td style="font-size:13px">${lastStr}</td>
+                            <td><div style="display:flex;flex-wrap:wrap;gap:4px">${chList.slice(0, 3).map(ch => '<span class="tag" style="cursor:pointer;font-size:11px" onclick="_viewersFilterChannel=\'' + ch + '\';renderViewersPage()">' + ch + '</span>').join('')}${chList.length > 3 ? ' <span class="tag" style="font-size:11px">+' + (chList.length - 3) + '</span>' : ''}</div></td>
+                            <td style="font-size:13px">${daysOld !== null ? (daysOld < 30 ? '<span style="color:#facc15">' + daysOld + ' дн.</span>' : daysOld + ' дн.') : '—'}</td>
+                            <td>${isOnline ? '<span style="color:var(--green);font-size:13px">● Online</span>' : '<span class="muted" style="font-size:13px">○ Offline</span>'}</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>` : '<div style="padding:40px;text-align:center"><p class="muted">Зрители не найдены. Данные появятся после того, как кто-то откроет страницу криэйтера и в чате будут зрители.</p></div>'}
+        </div>`;
+        show('viewersPage');
+    }
+
     function renderInfo(type) {
         const map = {
-            viewers: ['Зрители которые смотрят', 'Сводка по возвращаемости, активности чата и ядру аудитории.', [['Core Viewers', '10–15', 'постоянное ядро'], ['Community Density', '62%', 'активность чата'], ['Returning Viewers', '48%', 'возврат за неделю']]],
             watching: ['Что смотрят', 'Игры и категории, которые дают лучший watch time.', [['Minecraft', '166h', 'основной контент'], ['Just Chatting', '24h', 'лучшее вовлечение'], ['PEAK', '15h', 'эксперименты']]],
             similar: ['Похожий контент', 'Контентные направления, похожие на текущую стратегию RGB.', [['Minecraft SMP', 'High', 'сильное совпадение'], ['Cozy Gaming', 'Medium', 'хорошая совместимость'], ['Community Events', 'High', 'рост удержания']]]
         };
@@ -1391,7 +1557,10 @@
     document.querySelectorAll('.nav button').forEach(b => b.addEventListener('click', () => {
         viewerTracker.stop();
         activeNav(b.dataset.page);
-        if (b.dataset.page === 'me') renderMyProfile(); else if (b.dataset.page === 'squad') renderHome(); else renderInfo(b.dataset.page);
+        if (b.dataset.page === 'me') renderMyProfile();
+        else if (b.dataset.page === 'squad') renderHome();
+        else if (b.dataset.page === 'viewers') renderViewersPage();
+        else renderInfo(b.dataset.page);
     }));
     window.addEventListener('resize', drawChart);
 
@@ -1406,6 +1575,7 @@
                 const homePage = document.getElementById('homePage');
                 const squadPage = document.getElementById('squadPage');
                 const creatorPage = document.getElementById('creatorPage');
+                const viewersPage = document.getElementById('viewersPage');
                 if (homePage && !homePage.classList.contains('hidden')) {
                     viewerTracker.stop();
                     await renderHome();
@@ -1421,6 +1591,8 @@
                     } else if (currentTwitchUser) {
                         await renderMyProfile();
                     }
+                } else if (viewersPage && !viewersPage.classList.contains('hidden')) {
+                    await renderViewersPage();
                 }
             } catch (e) {}
         }, 30000);
