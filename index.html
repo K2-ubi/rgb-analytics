@@ -889,6 +889,66 @@
         return `<article class="metric"><p>${label}</p><strong>${value}</strong>${sub ? `<p style="margin-top:8px">${sub}</p>` : ''}</article>`;
     }
 
+    function findMemberData(name) {
+        return allMembers.find(m => m.name.toLowerCase() === name.toLowerCase());
+    }
+
+    function calculateHP(memberData) {
+        if (!memberData) return null;
+
+        const avgScore = Math.min(Math.round((memberData.avg || 0) * 10), 100);
+        const retentionScore = Math.min(Math.round(memberData.retention || 0), 100);
+        const freqNum = parseInt(memberData.consistency || '0');
+        const freqScore = Math.min(Math.round(freqNum * 15), 100);
+        const gainNum = parseInt((memberData.gain || '0').replace('+', ''));
+        const gainScore = Math.min(Math.round(gainNum * 3), 100);
+        const whNum = parseInt(memberData.watch || '0');
+        const whScore = Math.min(Math.round(Math.sqrt(whNum) * 2.5), 100);
+        const densityScore = Math.min(Math.round(parseInt(memberData.density || '0')), 100);
+
+        const hp = Math.round(
+            avgScore * 0.30 +
+            retentionScore * 0.20 +
+            freqScore * 0.15 +
+            gainScore * 0.15 +
+            whScore * 0.10 +
+            densityScore * 0.10
+        );
+
+        return Math.max(0, Math.min(100, hp));
+    }
+
+    function hpInterpretation(score) {
+        if (score === null || score === undefined) return { level: 'Нет данных', color: '#888' };
+        if (score >= 90) return { level: 'Потенциальный большой канал', color: '#a855f7' };
+        if (score >= 80) return { level: 'Высокий шанс популярности', color: '#4ade80' };
+        if (score >= 65) return { level: 'Сильный рост', color: '#22d3ee' };
+        if (score >= 50) return { level: 'Стабильный канал', color: '#facc15' };
+        if (score >= 30) return { level: 'Слабый рост', color: '#fb923c' };
+        return { level: 'Канал почти мертв', color: '#ef4444' };
+    }
+
+    function hpBreakdown(memberData) {
+        if (!memberData) return '';
+        const items = [
+            { label: 'Avg Viewers', raw: memberData.avg, score: Math.min(Math.round((memberData.avg || 0) * 10), 100) },
+            { label: 'Retention', raw: memberData.retention + '%', score: Math.min(Math.round(memberData.retention || 0), 100) },
+            { label: 'Frequency', raw: memberData.consistency, score: Math.min(Math.round(parseInt(memberData.consistency || '0') * 15), 100) },
+            { label: 'Followers Growth', raw: memberData.gain, score: Math.min(Math.round(parseInt((memberData.gain || '0').replace('+', '')) * 3), 100) },
+            { label: 'Watch Hours', raw: memberData.watch, score: Math.min(Math.round(Math.sqrt(parseInt(memberData.watch || '0')) * 2.5), 100) },
+            { label: 'Community Density', raw: memberData.density, score: Math.min(Math.round(parseInt(memberData.density || '0')), 100) }
+        ];
+        return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;line-height:1.8">' +
+            items.map(i =>
+                '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+                '<span style="color:var(--muted)">' + i.label + '</span>' +
+                '<div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;max-width:60px">' +
+                '<div style="width:' + i.score + '%;height:100%;border-radius:2px;background:var(--purple)"></div></div>' +
+                '<span style="color:#fff;font-weight:600">' + i.score + '</span>' +
+                '</div>'
+            ).join('') + '</div>';
+    }
+
     async function loadTwitchUsers(force) {
         const now = Date.now();
         if (!force && cachedUsers && (now - cachedUsersTime < CACHE_TTL)) {
@@ -1078,6 +1138,10 @@
         const title = stream ? stream.title : 'Не в эфире';
         const viewers = stream ? stream.viewer_count : 0;
         const quality = analyzeQuality(followers, 0, viewers);
+        const memberData = findMemberData(name);
+        const hpScore = calculateHP(memberData);
+        const hpInfo = hpInterpretation(hpScore);
+        const hpDisplay = hpScore !== null ? hpScore + ' / 100' : '—';
 
         const viewerSectionId = 'viewerAnalysis_' + name.replace(/[^a-z0-9]/gi, '');
         document.getElementById('creatorPage').innerHTML = `
@@ -1093,7 +1157,7 @@
                         ${metric('Фоловеры', followers)}
                         ${metric('Роль', roleStr)}
                         ${metric('Статус', isLive ? 'Online' : 'Offline')}
-                        ${metric('Активность ауд.', quality.label)}
+                        ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                     </div>
                 </div>
                 <div class="card">
@@ -1235,6 +1299,10 @@
         const title = streamInfo ? streamInfo.title : 'Нет в эфире';
         const viewers = streamInfo ? streamInfo.viewer_count : 0;
         const quality = analyzeQuality(followers, 0, viewers);
+        const memberData = findMemberData(user.login);
+        const hpScore = calculateHP(memberData);
+        const hpInfo = hpInterpretation(hpScore);
+        const hpDisplay = hpScore !== null ? hpScore + ' / 100' : '—';
 
         document.getElementById('creatorPage').innerHTML = `
         <div class="dash-grid">
@@ -1252,7 +1320,7 @@
                         ${metric('Фоловеры', followers)}
                         ${metric('Роль', rolesDisplay())}
                         ${metric('Статус', isLive)}
-                        ${metric('Активность ауд.', quality.label)}
+                        ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                         ${metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'}))}
                     </div>
                 </div>
