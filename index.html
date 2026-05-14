@@ -190,8 +190,7 @@
             token = params.get('access_token');
             if (token) {
                 localStorage.setItem('twitchAccessToken', token);
-        window.location.hash = '';
-        document.querySelector('.brand').innerHTML = '<div class="logo"></div><div><h1>RGB Analytics</h1><p>Creator Network</p></div>';
+                window.location.hash = '';
             }
         }
         if (!token) {
@@ -232,6 +231,15 @@
             currentUserRole = userData.role || null;
             localStorage.setItem('twitchUserLogin', twitchUser.login);
             localStorage.setItem('twitchUserRole', currentUserRole || '');
+
+            await db.ref('twitch-users/' + twitchUser.login.toLowerCase()).update({
+                twitchId: twitchUser.id,
+                displayName: twitchUser.display_name,
+                profileImageUrl: twitchUser.profile_image_url,
+                description: twitchUser.description || '',
+                lastSeen: firebase.database.ServerValue.TIMESTAMP
+            });
+
             return true;
         } catch (e) {
             console.warn('Twitch API error:', e);
@@ -242,19 +250,23 @@
 
 <script>
     async function initApp() {
-        const app = document.getElementById('app');
-        const authBlock = document.getElementById('authBlock');
+        try {
+            const app = document.getElementById('app');
+            const authBlock = document.getElementById('authBlock');
 
-        const ok = await checkTwitchAuth();
-        if (ok) {
-            app.classList.add('authorized');
-            authBlock.style.display = 'none';
-        renderHome();
-        renderAdminButton();
-        renderSidebarUser();
-        } else {
-            app.classList.remove('authorized');
-            authBlock.style.display = 'flex';
+            const ok = await checkTwitchAuth();
+            if (ok) {
+                app.classList.add('authorized');
+                authBlock.style.display = 'none';
+                await renderHome();
+                renderAdminButton();
+                renderSidebarUser();
+            } else {
+                app.classList.remove('authorized');
+                authBlock.style.display = 'flex';
+            }
+        } catch (e) {
+            console.error('initApp error:', e);
         }
     }
     initApp();
@@ -491,16 +503,225 @@
         return `<article class="metric"><p>${label}</p><strong>${value}</strong>${sub ? `<p style="margin-top:8px">${sub}</p>` : ''}</article>`;
     }
 
-    function renderHome() {
-        const weekly = [
-            ['Top Avg Viewers', 'K2gemer', '8 avg', '+14%'], ['Most Stream Hours', 'Mak_Kallster', '18.4h', '+6%'],
-            ['Best Follower Gain', 'K2gemer', '+26', '+38%'], ['Best Consistency', 'Minilloshka', '5 days', 'stable']
-        ];
+    async function loadTwitchUsers() {
+        const token = localStorage.getItem('twitchAccessToken');
+        const snap = await db.ref('twitch-users').once('value');
+        const all = snap.val();
+        if (!all) return [];
+        const logins = Object.keys(all);
+        const members = [];
+
+        if (token && logins.length > 0) {
+            try {
+                const url = 'https://api.twitch.tv/helix/users?login=' + logins.join('&login=');
+                const res = await fetch(url, {
+                    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+                });
+                const data = await res.json();
+                const userMap = {};
+                data.data.forEach(u => { userMap[u.login.toLowerCase()] = u; });
+
+                const ids = data.data.map(u => u.id).filter(Boolean);
+                let streamMap = {};
+                if (ids.length > 0) {
+                    const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + ids.join('&user_id='), {
+                        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+                    });
+                    const stData = await stRes.json();
+                    stData.data.forEach(s => { streamMap[s.user_id] = s; });
+                }
+
+                for (const login of logins) {
+                    const u = userMap[login];
+                    const s = u ? streamMap[u.id] : null;
+                    members.push({
+                        login, role: all[login].role || 'user',
+                        displayName: u ? u.display_name : all[login].displayName || login,
+                        profileImageUrl: u ? u.profile_image_url : all[login].profileImageUrl || '',
+                        description: u ? u.description : all[login].description || '',
+                        twitchId: u ? u.id : all[login].twitchId,
+                        stream: s, isLive: !!s, viewers: s ? s.viewer_count : 0,
+                        gameName: s ? s.game_name : '', streamTitle: s ? s.title : ''
+                    });
+                }
+            } catch (e) {
+                console.warn('Twitch fetch error:', e);
+                for (const login of logins) {
+                    members.push({
+                        login, role: all[login].role || 'user',
+                        displayName: all[login].displayName || login,
+                        profileImageUrl: all[login].profileImageUrl || '',
+                        description: all[login].description || '',
+                        twitchId: all[login].twitchId,
+                        stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: ''
+                    });
+                }
+            }
+        } else {
+            for (const login of logins) {
+                members.push({
+                    login, role: all[login].role || 'user',
+                    displayName: all[login].displayName || login,
+                    profileImageUrl: all[login].profileImageUrl || '',
+                    description: all[login].description || '',
+                    twitchId: all[login].twitchId,
+                    stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: ''
+                });
+            }
+        }
+        return members;
+    }
+
+    async function renderHome() {
+        const members = await loadTwitchUsers();
+        const squad = members.filter(m => m.role === 'squad');
+        const academy = members.filter(m => m.role === 'academy');
+        const total = members.length;
+        const online = members.filter(m => m.isLive).length;
+        const totalViewers = members.reduce((s, m) => s + m.viewers, 0);
+
         document.getElementById('homePage').innerHTML = `
-        <div class="hero"><div class="hero-inner"><div><div class="pill"><span class="dot online"></span>RGB Creator Analytics Network</div><h1>Multi-Channel Twitch Intelligence Platform</h1><p class="lead">Выбери подразделение, открой список людей, посмотри краткие метрики и нажми на человека, чтобы открыть dashboard в старом стиле.</p><div class="hero-actions"><button class="btn primary" onclick="openSquad('main')">RGB-Squad</button><button class="btn" onclick="openSquad('academy')">RGB-Academy</button></div></div><div class="profile"><div class="profile-head"><div class="avatar"></div><div><h2>RGB Network</h2><p class="muted">Squad + Academy</p></div></div><div class="metric-grid">${metric('Creators', allMembers.length)}${metric('Total Followers', allMembers.reduce((s, m) => s + m.followers, 0))}${metric('Avg Network Viewers', (allMembers.reduce((s, m) => s + m.avg, 0)).toFixed(1))}${metric('Active Groups', '2')}</div></div></div></div>
-        <div class="home-grid">${Object.entries(squads).map(([key, s]) => `<section class="squad-card"><p class="section-label">${s.label}</p><h2>${s.title}</h2>${s.members.map(m => `<div class="creator-row" onclick="openCreator('${m.name}')"><div><h3>${m.name}</h3><p>${m.role} • ${m.avg} avg • ${m.hours}</p></div><button class="btn">Open</button></div>`).join('')}<button class="btn primary" style="margin-top:18px" onclick="openSquad('${key}')">Смотреть всех</button></section>`).join('')}</div>
-        <section class="weekly"><div class="weekly-head"><div><p class="muted">Weekly Top Metrics</p><h2>Лучшие показатели за неделю</h2></div><span class="tag">Last 7 days</span></div><div class="top-grid">${weekly.map(w => `<article class="metric"><p>${w[0]}</p><strong>${w[2]}</strong><div style="display:flex;justify-content:space-between;margin-top:14px"><b>${w[1]}</b><span style="color:var(--green)">${w[3]}</span></div></article>`).join('')}</div></section>`;
+        <div class="hero"><div class="hero-inner"><div><div class="pill"><span class="dot ${online ? 'online' : ''}"></span>RGB Creator Analytics Network &mdash; ${online} в эфире</div><h1>Multi-Channel Twitch Intelligence Platform</h1><p class="lead">Автоматическая аналитика по креаторам RGB Network. Данные подтягиваются из Twitch API в реальном времени.</p><div class="hero-actions"><button class="btn primary" onclick="openSquad('squad')">RGB-Squad</button><button class="btn" onclick="openSquad('academy')">RGB-Academy</button></div></div><div class="profile"><div class="profile-head"><div class="avatar"></div><div><h2>RGB Network</h2><p class="muted">Squad + Academy</p></div></div><div class="metric-grid">${metric('Креаторы', total)}${metric('В эфире', online)}${metric('Всего зрителей', totalViewers)}${metric('Группы', '2')}</div></div></div></div>
+        <div class="home-grid">${[
+            ['squad', 'RGB-Squad', 'PRIMARY CREATOR TEAM', squad],
+            ['academy', 'RGB-Academy', 'DEVELOPMENT PROGRAM', academy]
+        ].map(([key, title, label, list]) => `
+            <section class="squad-card"><p class="section-label">${label}</p><h2>${title}</h2>
+            ${list.length ? list.map(m => `
+                <div class="creator-row" onclick="openCreator('${m.login}')">
+                    <div><h3>${m.displayName}</h3>
+                    <p>${m.isLive ? '<span style="color:var(--green)">● LIVE</span> ' + m.gameName : '○ Offline'} &bull; ${m.viewers} зр.</p></div>
+                    <button class="btn">Open</button>
+                </div>`).join('') : '<p class="muted" style="padding:18px">Нет участников</p>'}
+            <button class="btn primary" style="margin-top:18px" onclick="openSquad('${key}')">Смотреть всех</button>
+            </section>`).join('')}</div>
+        ${online ? `<section class="weekly"><div class="weekly-head"><div><p class="muted">Live Now</p><h2>Сейчас в эфире</h2></div><span class="tag">${online} streaming</span></div><div class="top-grid">${members.filter(m => m.isLive).slice(0, 4).map(m => `
+            <article class="metric"><p>${m.displayName}</p><strong>${m.viewers}</strong><div style="display:flex;justify-content:space-between;margin-top:14px"><b>${m.gameName}</b><span style="color:var(--green)">Live</span></div></article>
+        `).join('')}</div></section>` : ''}`;
         show('homePage');
+    }
+
+    async function openSquad(group) {
+        activeNav('squad');
+        const members = await loadTwitchUsers();
+        const filtered = members.filter(m => m.role === group);
+        const title = group === 'squad' ? 'RGB-Squad' : 'RGB-Academy';
+        const label = group === 'squad' ? 'PRIMARY CREATOR TEAM' : 'DEVELOPMENT PROGRAM';
+
+        document.getElementById('squadPage').innerHTML = `
+        <div class="page-card">
+            <button class="btn" onclick="renderHome();activeNav('squad')">← Назад к подразделениям</button>
+            <p class="section-label" style="margin-top:30px">${label}</p>
+            <h1 style="margin-bottom:28px">${title}</h1>
+            <div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Creator</th><th>Статус</th><th>Игра</th><th>Зрители</th><th>Роль</th><th>Стрим</th></tr></thead><tbody>${
+                filtered.map((m, i) => `
+                <tr onclick="openCreator('${m.login}')">
+                    <td>${i + 1}</td>
+                    <td><div class="creator-cell"><img class="mini-avatar" src="${m.profileImageUrl || ''}" alt="" style="object-fit:cover;background:linear-gradient(135deg,var(--purple),var(--fuchsia))"><div><b>${m.displayName}</b><p class="muted">${m.login}</p></div></div></td>
+                    <td><span style="color:${m.isLive ? 'var(--green)' : 'var(--muted)'}">${m.isLive ? 'Online' : 'Offline'}</span></td>
+                    <td>${m.gameName || '—'}</td>
+                    <td>${m.viewers}</td>
+                    <td><span class="tag">${m.role}</span></td>
+                    <td>${m.streamTitle ? m.streamTitle.slice(0, 30) + (m.streamTitle.length > 30 ? '…' : '') : '—'}</td>
+                </tr>`).join('')}
+            </tbody></table></div>
+        </div>`;
+        show('squadPage');
+    }
+
+    async function openCreator(name) {
+        const token = localStorage.getItem('twitchAccessToken');
+        let user, stream, followers = '...';
+        try {
+            const res = await fetch('https://api.twitch.tv/helix/users?login=' + name, {
+                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+            });
+            const data = await res.json();
+            user = data.data[0];
+            if (user) {
+                const flRes = await fetch('https://api.twitch.tv/helix/users/follows?to_id=' + user.id, {
+                    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+                });
+                const flData = await flRes.json();
+                followers = flData.total || 0;
+                const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
+                    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+                });
+                const stData = await stRes.json();
+                stream = stData.data && stData.data[0] ? stData.data[0] : null;
+            }
+        } catch (e) {}
+
+        const snap = await db.ref('twitch-users/' + name.toLowerCase()).once('value');
+        const dbUser = snap.val() || {};
+        const role = dbUser.role || 'user';
+        const displayName = user ? user.display_name : dbUser.displayName || name;
+        const avatar = user ? user.profile_image_url : dbUser.profileImageUrl || '';
+        const desc = user ? user.description : dbUser.description || '';
+        const isLive = !!stream;
+        const game = stream ? stream.game_name : '—';
+        const title = stream ? stream.title : 'Не в эфире';
+        const viewers = stream ? stream.viewer_count : 0;
+
+        document.getElementById('creatorPage').innerHTML = `
+        <div class="dash-grid">
+            <div class="left-stack">
+                <div class="profile big">
+                    <button class="btn" onclick="renderHome();activeNav('squad')">← Назад</button>
+                    <div class="profile-head" style="margin-top:24px">
+                        <img class="avatar" src="${avatar}" alt="" style="object-fit:cover">
+                        <div><h2>${displayName}</h2><p class="muted">${desc ? desc.slice(0, 60) : 'Twitch Creator'}</p></div>
+                    </div>
+                    <div class="metric-grid">
+                        ${metric('Подписчики', followers)}
+                        ${metric('Роль', role)}
+                        ${metric('Статус', isLive ? 'Online' : 'Offline')}
+                        ${user ? metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'})) : ''}
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Текущий стрим</h2>
+                    <p class="muted" style="margin:8px 0">${title}</p>
+                    ${stream ? `<div class="content-item"><span>Игра</span><b>${game}</b></div><div class="content-item"><span>Зрители</span><b>${viewers}</b></div>` : '<p class="muted">Не в эфире</p>'}
+                </div>
+            </div>
+            <main class="dashboard-main card">
+                <div class="dash-head">
+                    <div><h1>${displayName}</h1><p class="muted">Twitch данные в реальном времени</p></div>
+                    <div><p class="muted">Статус</p><b style="color:${isLive ? 'var(--green)' : 'var(--muted)'}">${isLive ? 'Online' : 'Offline'}</b></div>
+                </div>
+                ${stream ? `
+                <div class="analytics-grid">
+                    <section class="card span-8">
+                        <h2>Сейчас в эфире</h2>
+                        <p class="muted">${title}</p>
+                        <div class="metric-grid" style="margin-top:16px">
+                            ${metric('Зрители', viewers)}
+                            ${metric('Игра', game)}
+                            ${metric('Язык', stream.language || '—')}
+                        </div>
+                    </section>
+                    <section class="card span-4">
+                        <h2>Канал</h2>
+                        <div class="content-item"><span>Подписчики</span><b>${followers}</b></div>
+                        <div class="content-item"><span>Логин</span><b>${name}</b></div>
+                        <div class="content-item"><span>Роль</span><b>${role}</b></div>
+                    </section>
+                </div>` : `
+                <div class="analytics-grid">
+                    <section class="card span-12">
+                        <h2>Канал</h2>
+                        <p class="muted">Базовая информация</p>
+                        <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(3,1fr)">
+                            ${metric('Подписчики', followers)}
+                            ${metric('Роль', role)}
+                            ${metric('Описание', desc ? desc.slice(0, 30) + '…' : '—')}
+                        </div>
+                    </section>
+                </div>`}
+            </main>
+        </div>`;
+        show('creatorPage');
     }
 
     function openSquad(key) {
