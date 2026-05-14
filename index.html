@@ -130,18 +130,17 @@
 </div>
 
 
-<div id="authBlock" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 20px;">
+<div id="authBlock" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 20px; padding: 20px;">
     <div class="logo" style="width: 80px; height: 80px;"></div>
     <h1 style="font-size: 24px;">RGB Analytics</h1>
-    <div style="display: flex; flex-direction: column; gap: 10px; wight: 300px;">
-        <input type="email" id="email" placeholder="Email" style="padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: white;">
-        <input type="password" id="password" placeholder="Password" style="padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: white;">
-        <button class="btn primary" onclick="login()">Войти</button>
-    </div>>
+    <div style="display: flex; flex-direction: column; gap: 10px; width: 340px;">
+        <input type="text" id="twitchClientId" placeholder="Twitch Client ID" style="padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: white;">
+        <button class="btn primary" onclick="twitchLogin()">Войти через Twitch</button>
+    </div>
+    <div id="twitchStatus" class="muted" style="font-size: 14px;"></div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 <script>
     const firebaseConfig = {
@@ -154,66 +153,123 @@
         appId: "1:972966480164:web:9303693952a413abf78bb1"
     };
     firebase.initializeApp(firebaseConfig);
-    const auth = firebase.auth();
     const db = firebase.database();
 </script>
 
 <script>
-    let currentUser = null;
+    let currentTwitchUser = null;
     let currentUserRole = null;
 
-    async function login() {
-        const email = document.getElementById('email').value;
-        const pass = document.getElementById('password').value;
-        try {
-            await auth.signInWithEmailAndPassword(email, pass);
-        } catch (error) {
-            alert("Ошибка: " + error.message);
-        }
+    function getTwitchClientId() {
+        return localStorage.getItem('twitchClientId') || '';
+    }
+
+    function setTwitchClientId(id) {
+        localStorage.setItem('twitchClientId', id);
+    }
+
+    function twitchLogin() {
+        const clientId = document.getElementById('twitchClientId').value.trim();
+        if (!clientId) { document.getElementById('twitchStatus').textContent = 'Введите Twitch Client ID'; return; }
+        setTwitchClientId(clientId);
+        const redirect = encodeURIComponent(window.location.href.split('#')[0]);
+        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + clientId + '&redirect_uri=' + redirect + '&response_type=token&scope=';
     }
 
     function logout() {
-        auth.signOut();
+        localStorage.removeItem('twitchAccessToken');
+        localStorage.removeItem('twitchUserLogin');
+        localStorage.removeItem('twitchUserRole');
+        currentTwitchUser = null;
+        currentUserRole = null;
+        document.getElementById('app').classList.remove('authorized');
+        document.getElementById('authBlock').style.display = 'flex';
+        const p = document.getElementById('adminPanel');
+        if (p) p.remove();
+        const b = document.getElementById('adminNavBtn');
+        if (b) b.remove();
+        window.location.hash = '';
     }
 
-    async function getUserRole(uid) {
-        const snap = await db.ref('users/' + uid + '/role').once('value');
-        return snap.val();
-    }
+    async function checkTwitchAuth() {
+        const hash = window.location.hash.substring(1);
+        let token = null;
+        if (hash) {
+            const params = new URLSearchParams(hash);
+            token = params.get('access_token');
+            if (token) {
+                localStorage.setItem('twitchAccessToken', token);
+                window.location.hash = '';
+            }
+        }
+        if (!token) {
+            token = localStorage.getItem('twitchAccessToken');
+        }
+        if (!token) return false;
 
-    async function saveUser(user) {
-        await db.ref('users/' + user.uid).update({
-            email: user.email,
-            lastLogin: firebase.database.ServerValue.TIMESTAMP
-        });
-    }
+        try {
+            const res = await fetch('https://api.twitch.tv/helix/users', {
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Client-Id': getTwitchClientId()
+                }
+            });
+            if (!res.ok) {
+                localStorage.removeItem('twitchAccessToken');
+                return false;
+            }
+            const data = await res.json();
+            const twitchUser = data.data[0];
+            if (!twitchUser) return false;
 
-    auth.onAuthStateChanged(async user => {
+            currentTwitchUser = twitchUser;
+
+            const snap = await db.ref('twitch-users/' + twitchUser.login.toLowerCase()).once('value');
+            const userData = snap.val();
+
+            if (!userData) {
+                document.getElementById('authBlock').innerHTML = `
+                    <div class="logo" style="width: 80px; height: 80px;"></div>
+                    <h1 style="font-size: 24px; text-align: center;">Мне кажется<br>Вам сюда нельзя</h1>
+                    <p class="muted" style="text-align: center; max-width: 300px;">Ваш Twitch аккаунт <b>${twitchUser.login}</b> не найден в базе RGB Network.</p>
+                    <button class="btn" onclick="location.reload()">Назад</button>
+                `;
+                return false;
+            }
+
+            currentUserRole = userData.role || null;
+            localStorage.setItem('twitchUserLogin', twitchUser.login);
+            localStorage.setItem('twitchUserRole', currentUserRole || '');
+            return true;
+        } catch (e) {
+            console.warn('Twitch API error:', e);
+            return false;
+        }
+    }
+</script>
+
+<script>
+    async function initApp() {
         const app = document.getElementById('app');
         const authBlock = document.getElementById('authBlock');
-        const adminPanel = document.getElementById('adminPanel');
-        if (user) {
-            currentUser = user;
-            try {
-                currentUserRole = await getUserRole(user.uid);
-                await saveUser(user);
-            } catch (e) {
-                console.warn('Database not configured yet, roles disabled:', e.message);
-                currentUserRole = null;
-            }
+
+        const clientId = getTwitchClientId();
+        if (clientId) {
+            document.getElementById('twitchClientId').value = clientId;
+        }
+
+        const ok = await checkTwitchAuth();
+        if (ok) {
             app.classList.add('authorized');
             authBlock.style.display = 'none';
-            if (!isAdmin() && adminPanel) adminPanel.remove();
             renderHome();
             renderAdminButton();
         } else {
-            currentUser = null;
-            currentUserRole = null;
             app.classList.remove('authorized');
             authBlock.style.display = 'flex';
-            if (adminPanel) adminPanel.remove();
         }
-    });
+    }
+    initApp();
 
 
     function isAdmin() {
@@ -236,7 +292,7 @@
             </div>
             <p class="muted" style="margin-bottom:24px">Управление ролями пользователей. Вы можете назначать роли RGB-Squad и RGB-Academy.</p>
             <div style="display:grid;gap:14px;margin-bottom:24px">
-                <input type="email" id="adminEmail" placeholder="Email пользователя" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;">
+                <input type="text" id="adminUsername" placeholder="Twitch username" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;">
                 <select id="adminRole" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;">
                     <option value="">— Без роли —</option>
                     <option value="squad">RGB-Squad</option>
@@ -247,7 +303,7 @@
             </div>
             <div id="adminResult"></div>
             <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
-                <p class="muted" style="margin-bottom:12px">Все пользователи:</p>
+                <p class="muted" style="margin-bottom:12px">Все пользователи в базе:</p>
                 <div id="userList"></div>
             </div>
         </div>`;
@@ -264,12 +320,12 @@
         const el = document.getElementById('userList');
         if (!el) return;
         try {
-            const snap = await db.ref('users').once('value');
+            const snap = await db.ref('twitch-users').once('value');
             const users = snap.val();
             if (!users) { el.innerHTML = '<p class="muted">Нет пользователей</p>'; return; }
-            el.innerHTML = Object.entries(users).map(([uid, u]) => `
+            el.innerHTML = Object.entries(users).map(([login, u]) => `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.055);margin-top:8px">
-                    <div><b>${u.email || '—'}</b><p class="muted" style="font-size:13px">UID: ${uid.slice(0,16)}…</p></div>
+                    <div><b>${login}</b><p class="muted" style="font-size:13px">${u.displayName || ''}</p></div>
                     <span class="tag" style="${u.role === 'admin' ? 'color:#fbbf24;background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.22)' : u.role === 'squad' ? 'color:#4ade80;background:rgba(74,222,128,.13);border-color:rgba(74,222,128,.22)' : u.role === 'academy' ? 'color:#a855f7;background:rgba(168,85,247,.13);border-color:rgba(168,85,247,.22)' : ''}">${u.role || 'user'}</span>
                 </div>`).join('');
         } catch (e) {
@@ -278,21 +334,14 @@
     }
 
     async function assignRole() {
-        const email = document.getElementById('adminEmail').value.trim();
+        const username = document.getElementById('adminUsername').value.trim().toLowerCase();
         const role = document.getElementById('adminRole').value;
         const result = document.getElementById('adminResult');
-        if (!email) { result.innerHTML = '<p style="color:#ef4444">Введите email</p>'; return; }
+        if (!username) { result.innerHTML = '<p style="color:#ef4444">Введите Twitch username</p>'; return; }
         try {
-            const snap = await db.ref('users').orderByChild('email').equalTo(email).once('value');
-            const data = snap.val();
-            if (!data) {
-                result.innerHTML = '<p style="color:#ef4444">Пользователь с таким email не найден. Он должен хотя бы раз войти в систему.</p>';
-                return;
-            }
-            const uid = Object.keys(data)[0];
-            await db.ref('users/' + uid + '/role').set(role || null);
-            result.innerHTML = `<p style="color:#4ade80">Роль "${role || 'user'}" назначена для ${email}</p>`;
-            document.getElementById('adminEmail').value = '';
+            await db.ref('twitch-users/' + username + '/role').set(role || null);
+            result.innerHTML = `<p style="color:#4ade80">Роль "${role || 'user'}" назначена для ${username}</p>`;
+            document.getElementById('adminUsername').value = '';
             loadUsersList();
         } catch (e) {
             result.innerHTML = '<p style="color:#ef4444">Ошибка: ' + e.message + '</p>';
