@@ -190,7 +190,8 @@
             token = params.get('access_token');
             if (token) {
                 localStorage.setItem('twitchAccessToken', token);
-                window.location.hash = '';
+        window.location.hash = '';
+        document.querySelector('.brand').innerHTML = '<div class="logo"></div><div><h1>RGB Analytics</h1><p>Creator Network</p></div>';
             }
         }
         if (!token) {
@@ -248,8 +249,9 @@
         if (ok) {
             app.classList.add('authorized');
             authBlock.style.display = 'none';
-            renderHome();
-            renderAdminButton();
+        renderHome();
+        renderAdminButton();
+        renderSidebarUser();
         } else {
             app.classList.remove('authorized');
             authBlock.style.display = 'flex';
@@ -352,6 +354,16 @@
         } else {
             if (btn) btn.remove();
         }
+    }
+
+    function renderSidebarUser() {
+        const u = currentTwitchUser;
+        if (!u) return;
+        const brand = document.querySelector('.brand');
+        brand.innerHTML = `
+            <img class="logo" src="${u.profile_image_url}" alt="" style="object-fit:cover">
+            <div><h1>${u.display_name}</h1><p class="muted">${currentUserRole || 'user'}</p></div>
+        `;
     }
 
     const squads = {
@@ -560,9 +572,102 @@
         show('infoPage');
     }
 
+    async function renderMyProfile() {
+        const user = currentTwitchUser;
+        if (!user) return;
+        const token = localStorage.getItem('twitchAccessToken');
+        let followers = '...';
+        let streamInfo = null;
+        try {
+            const flRes = await fetch('https://api.twitch.tv/helix/users/follows?to_id=' + user.id, {
+                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+            });
+            const flData = await flRes.json();
+            followers = flData.total || 0;
+
+            const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
+                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+            });
+            const stData = await stRes.json();
+            streamInfo = stData.data && stData.data[0] ? stData.data[0] : null;
+        } catch (e) {}
+
+        const isLive = streamInfo ? 'Online' : 'Offline';
+        const gameName = streamInfo ? streamInfo.game_name : '—';
+        const title = streamInfo ? streamInfo.title : 'Нет в эфире';
+        const viewers = streamInfo ? streamInfo.viewer_count : 0;
+
+        document.getElementById('creatorPage').innerHTML = `
+        <div class="dash-grid">
+            <div class="left-stack">
+                <div class="profile big">
+                    <button class="btn" onclick="renderHome();activeNav('squad')">← На главную</button>
+                    <div class="profile-head" style="margin-top:24px">
+                        <img class="avatar" src="${user.profile_image_url}" alt="" style="object-fit:cover">
+                        <div>
+                            <h2>${user.display_name}</h2>
+                            <p class="muted">${user.description ? user.description.slice(0, 60) : 'Twitch Creator'}</p>
+                        </div>
+                    </div>
+                    <div class="metric-grid">
+                        ${metric('Подписчики', followers)}
+                        ${metric('Роль', currentUserRole || 'user')}
+                        ${metric('Статус', isLive)}
+                        ${metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'}))}
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Текущий стрим</h2>
+                    <p class="muted" style="margin:8px 0">${title}</p>
+                    ${streamInfo ? `<div class="content-item"><span>Игра</span><b>${gameName}</b></div><div class="content-item"><span>Зрители</span><b>${viewers}</b></div>` : '<p class="muted">Не в эфире</p>'}
+                </div>
+            </div>
+            <main class="dashboard-main card">
+                <div class="dash-head">
+                    <div>
+                        <h1>Мой профиль</h1>
+                        <p class="muted">Twitch Analytics — данные в реальном времени</p>
+                    </div>
+                    <div><p class="muted">Статус</p><b style="color:${isLive === 'Online' ? 'var(--green)' : 'var(--muted)'}">${isLive}</b></div>
+                </div>
+                ${streamInfo ? `
+                <div class="analytics-grid">
+                    <section class="card span-8">
+                        <h2>Сейчас в эфире</h2>
+                        <p class="muted">${title}</p>
+                        <div class="metric-grid" style="margin-top:16px">
+                            ${metric('Зрители', viewers)}
+                            ${metric('Игра', gameName)}
+                            ${metric('Язык', streamInfo.language || '—')}
+                        </div>
+                    </section>
+                    <section class="card span-4">
+                        <h2>Канал</h2>
+                        <div class="content-item"><span>Подписчики</span><b>${followers}</b></div>
+                        <div class="content-item"><span>Логин</span><b>${user.login}</b></div>
+                        <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
+                    </section>
+                </div>` : `
+                <div class="analytics-grid">
+                    <section class="card span-12">
+                        <h2>Канал</h2>
+                        <p class="muted">Базовая информация</p>
+                        <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(3,1fr)">
+                            ${metric('Подписчики', followers)}
+                            ${metric('Роль', currentUserRole || 'user')}
+                            ${metric('Описание', user.description ? user.description.slice(0, 30) + '…' : '—')}
+                        </div>
+                    </section>
+                </div>`}
+            </main>
+        </div>`;
+        show('creatorPage');
+        activeNav('me');
+    }
+
     document.querySelectorAll('.nav button').forEach(b => b.addEventListener('click', () => {
         activeNav(b.dataset.page);
-        if (b.dataset.page === 'me') openCreator('K2gemer'); else if (b.dataset.page === 'squad') renderHome(); else renderInfo(b.dataset.page);
+        if (b.dataset.page === 'me') renderMyProfile(); else if (b.dataset.page === 'squad') renderHome(); else renderInfo(b.dataset.page);
     }));
     window.addEventListener('resize', drawChart);
 </script>
