@@ -544,8 +544,7 @@
                 }
 
                 // Save to Firebase every 30s
-                const now = Date.now();
-                if (!this._lastSaveTime || now - this._lastSaveTime > 30000) {
+                if (!this._lastSaveTime || Date.now() - this._lastSaveTime > 30000) {
                     this._lastSaveTime = now;
                     this._saveToFirebase();
                 }
