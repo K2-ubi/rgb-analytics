@@ -159,7 +159,7 @@
     const TWITCH_CLIENT_ID = 'a26lg52682u7ja24bam0p8lnahs7lg';
 
     let currentTwitchUser = null;
-    let currentUserRole = null;
+    let currentUserRoles = {};
 
     function twitchLogin() {
         if (!TWITCH_CLIENT_ID) { document.getElementById('twitchStatus').textContent = 'Twitch Client ID не настроен'; return; }
@@ -170,9 +170,9 @@
     function logout() {
         localStorage.removeItem('twitchAccessToken');
         localStorage.removeItem('twitchUserLogin');
-        localStorage.removeItem('twitchUserRole');
+        localStorage.removeItem('twitchUserRoles');
         currentTwitchUser = null;
-        currentUserRole = null;
+        currentUserRoles = {};
         document.getElementById('app').classList.remove('authorized');
         document.getElementById('authBlock').style.display = 'flex';
         const p = document.getElementById('adminPanel');
@@ -228,9 +228,13 @@
                 return false;
             }
 
-            currentUserRole = userData.role || null;
+            currentUserRoles = userData.roles || {};
+            // backward compatibility: old single role field
+            if (userData.role && !currentUserRoles[userData.role]) {
+                currentUserRoles[userData.role] = true;
+            }
             localStorage.setItem('twitchUserLogin', twitchUser.login);
-            localStorage.setItem('twitchUserRole', currentUserRole || '');
+            localStorage.setItem('twitchUserRoles', JSON.stringify(currentUserRoles));
 
             await db.ref('twitch-users/' + twitchUser.login.toLowerCase()).update({
                 twitchId: twitchUser.id,
@@ -273,7 +277,19 @@
 
 
     function isAdmin() {
-        return currentUserRole === 'admin';
+        return currentUserRoles && currentUserRoles.admin === true;
+    }
+
+    function hasRole(role) {
+        return currentUserRoles && currentUserRoles[role] === true;
+    }
+
+    function rolesDisplay() {
+        const labels = [];
+        if (currentUserRoles?.admin) labels.push('Admin');
+        if (currentUserRoles?.squad) labels.push('Squad');
+        if (currentUserRoles?.academy) labels.push('Academy');
+        return labels.join(', ') || 'user';
     }
 
     function renderAdminPanel() {
@@ -284,6 +300,37 @@
             panel.className = 'hidden fade';
             document.querySelector('.main').appendChild(panel);
         }
+        panel.innerHTML = `
+        <div class="page-card">
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px">
+                <span style="background:linear-gradient(135deg,#f59e0b,#ef4444);width:12px;height:12px;border-radius:50%;display:inline-block"></span>
+                <h1>Admin Panel</h1>
+            </div>
+            <p class="muted" style="margin-bottom:24px">Управление ролями пользователей. Отметь нужные роли для пользователя.</p>
+            <div style="display:grid;gap:14px;margin-bottom:24px">
+                <input type="text" id="adminUsername" placeholder="Twitch username" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;">
+                <div style="display:flex;gap:12px;flex-wrap:wrap">
+                    <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--panel);cursor:pointer">
+                        <input type="checkbox" id="chkAdmin" value="admin"> <span style="color:#fbbf24">Admin</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--panel);cursor:pointer">
+                        <input type="checkbox" id="chkSquad" value="squad"> <span style="color:#4ade80">RGB-Squad</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);background:var(--panel);cursor:pointer">
+                        <input type="checkbox" id="chkAcademy" value="academy"> <span style="color:#a855f7">RGB-Academy</span>
+                    </label>
+                </div>
+                <button class="btn primary" onclick="assignRole()">Назначить роли</button>
+            </div>
+            <div id="adminResult"></div>
+            <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+                <p class="muted" style="margin-bottom:12px">Все пользователи в базе:</p>
+                <div id="userList"></div>
+            </div>
+        </div>`;
+        showAdminPage();
+        loadUsersList();
+    }
         panel.innerHTML = `
         <div class="page-card">
             <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px">
@@ -323,11 +370,18 @@
             const snap = await db.ref('twitch-users').once('value');
             const users = snap.val();
             if (!users) { el.innerHTML = '<p class="muted">Нет пользователей</p>'; return; }
-            el.innerHTML = Object.entries(users).map(([login, u]) => `
+            el.innerHTML = Object.entries(users).map(([login, u]) => {
+                const roles = u.roles || {};
+                const tags = [];
+                if (roles.admin) tags.push('<span class="tag" style="color:#fbbf24;background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.22)">Admin</span>');
+                if (roles.squad) tags.push('<span class="tag" style="color:#4ade80;background:rgba(74,222,128,.13);border-color:rgba(74,222,128,.22)">Squad</span>');
+                if (roles.academy) tags.push('<span class="tag" style="color:#a855f7;background:rgba(168,85,247,.13);border-color:rgba(168,85,247,.22)">Academy</span>');
+                return `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.055);margin-top:8px">
                     <div><b>${login}</b><p class="muted" style="font-size:13px">${u.displayName || ''}</p></div>
-                    <span class="tag" style="${u.role === 'admin' ? 'color:#fbbf24;background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.22)' : u.role === 'squad' ? 'color:#4ade80;background:rgba(74,222,128,.13);border-color:rgba(74,222,128,.22)' : u.role === 'academy' ? 'color:#a855f7;background:rgba(168,85,247,.13);border-color:rgba(168,85,247,.22)' : ''}">${u.role || 'user'}</span>
-                </div>`).join('');
+                    <div style="display:flex;gap:6px">${tags.length ? tags.join('') : '<span class="tag">user</span>'}</div>
+                </div>`;
+            }).join('');
         } catch (e) {
             el.innerHTML = '<p class="muted">Ошибка загрузки</p>';
         }
@@ -335,13 +389,18 @@
 
     async function assignRole() {
         const username = document.getElementById('adminUsername').value.trim().toLowerCase();
-        const role = document.getElementById('adminRole').value;
         const result = document.getElementById('adminResult');
         if (!username) { result.innerHTML = '<p style="color:#ef4444">Введите Twitch username</p>'; return; }
+        const roles = {};
+        if (document.getElementById('chkAdmin').checked) roles.admin = true;
+        if (document.getElementById('chkSquad').checked) roles.squad = true;
+        if (document.getElementById('chkAcademy').checked) roles.academy = true;
         try {
-            await db.ref('twitch-users/' + username + '/role').set(role || null);
-            result.innerHTML = `<p style="color:#4ade80">Роль "${role || 'user'}" назначена для ${username}</p>`;
+            await db.ref('twitch-users/' + username + '/roles').set(roles);
+            const label = Object.keys(roles).length ? Object.keys(roles).join(', ') : 'user';
+            result.innerHTML = `<p style="color:#4ade80">Роли "${label}" назначены для ${username}</p>`;
             document.getElementById('adminUsername').value = '';
+            document.querySelectorAll('#adminPanel input[type=checkbox]').forEach(c => c.checked = false);
             loadUsersList();
         } catch (e) {
             result.innerHTML = '<p style="color:#ef4444">Ошибка: ' + e.message + '</p>';
@@ -374,7 +433,7 @@
         const brand = document.querySelector('.brand');
         brand.innerHTML = `
             <img class="logo" src="${u.profile_image_url}" alt="" style="object-fit:cover">
-            <div><h1>${u.display_name}</h1><p class="muted">${currentUserRole || 'user'}</p></div>
+            <div><h1>${u.display_name}</h1><p class="muted">${rolesDisplay()}</p></div>
         `;
     }
 
@@ -535,7 +594,7 @@
                     const u = userMap[login];
                     const s = u ? streamMap[u.id] : null;
                     members.push({
-                        login, role: all[login].role || 'user',
+                        login, roles: all[login].roles || {},
                         displayName: u ? u.display_name : all[login].displayName || login,
                         profileImageUrl: u ? u.profile_image_url : all[login].profileImageUrl || '',
                         description: u ? u.description : all[login].description || '',
@@ -548,7 +607,7 @@
                 console.warn('Twitch fetch error:', e);
                 for (const login of logins) {
                     members.push({
-                        login, role: all[login].role || 'user',
+                        login, roles: all[login].roles || {},
                         displayName: all[login].displayName || login,
                         profileImageUrl: all[login].profileImageUrl || '',
                         description: all[login].description || '',
@@ -560,7 +619,7 @@
         } else {
             for (const login of logins) {
                 members.push({
-                    login, role: all[login].role || 'user',
+                    login, roles: all[login].roles || {},
                     displayName: all[login].displayName || login,
                     profileImageUrl: all[login].profileImageUrl || '',
                     description: all[login].description || '',
@@ -574,8 +633,8 @@
 
     async function renderHome() {
         const members = await loadTwitchUsers();
-        const squad = members.filter(m => m.role === 'squad');
-        const academy = members.filter(m => m.role === 'academy');
+        const squad = members.filter(m => m.roles && m.roles.squad);
+        const academy = members.filter(m => m.roles && m.roles.academy);
         const total = members.length;
         const online = members.filter(m => m.isLive).length;
         const totalViewers = members.reduce((s, m) => s + m.viewers, 0);
@@ -604,7 +663,7 @@
     async function openSquad(group) {
         activeNav('squad');
         const members = await loadTwitchUsers();
-        const filtered = members.filter(m => m.role === group);
+        const filtered = members.filter(m => m.roles && m.roles[group]);
         const title = group === 'squad' ? 'RGB-Squad' : 'RGB-Academy';
         const label = group === 'squad' ? 'PRIMARY CREATOR TEAM' : 'DEVELOPMENT PROGRAM';
 
@@ -621,7 +680,7 @@
                     <td><span style="color:${m.isLive ? 'var(--green)' : 'var(--muted)'}">${m.isLive ? 'Online' : 'Offline'}</span></td>
                     <td>${m.gameName || '—'}</td>
                     <td>${m.viewers}</td>
-                    <td><span class="tag">${m.role}</span></td>
+                    <td><span class="tag">${[m.roles?.admin && 'Admin', m.roles?.squad && 'Squad', m.roles?.academy && 'Academy'].filter(Boolean).join(', ') || 'user'}</span></td>
                     <td>${m.streamTitle ? m.streamTitle.slice(0, 30) + (m.streamTitle.length > 30 ? '…' : '') : '—'}</td>
                 </tr>`).join('')}
             </tbody></table></div>
@@ -654,7 +713,8 @@
 
         const snap = await db.ref('twitch-users/' + name.toLowerCase()).once('value');
         const dbUser = snap.val() || {};
-        const role = dbUser.role || 'user';
+        const roles = dbUser.roles || {};
+        const roleStr = [roles.admin && 'Admin', roles.squad && 'Squad', roles.academy && 'Academy'].filter(Boolean).join(', ') || 'user';
         const displayName = user ? user.display_name : dbUser.displayName || name;
         const avatar = user ? user.profile_image_url : dbUser.profileImageUrl || '';
         const desc = user ? user.description : dbUser.description || '';
@@ -674,7 +734,7 @@
                     </div>
                     <div class="metric-grid">
                         ${metric('Подписчики', followers)}
-                        ${metric('Роль', role)}
+                        ${metric('Роль', roleStr)}
                         ${metric('Статус', isLive ? 'Online' : 'Offline')}
                         ${user ? metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'})) : ''}
                     </div>
@@ -705,7 +765,7 @@
                         <h2>Канал</h2>
                         <div class="content-item"><span>Подписчики</span><b>${followers}</b></div>
                         <div class="content-item"><span>Логин</span><b>${name}</b></div>
-                        <div class="content-item"><span>Роль</span><b>${role}</b></div>
+                        <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
                     </section>
                 </div>` : `
                 <div class="analytics-grid">
@@ -714,7 +774,7 @@
                         <p class="muted">Базовая информация</p>
                         <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(3,1fr)">
                             ${metric('Подписчики', followers)}
-                            ${metric('Роль', role)}
+                            ${metric('Роль', roleStr)}
                             ${metric('Описание', desc ? desc.slice(0, 30) + '…' : '—')}
                         </div>
                     </section>
@@ -832,7 +892,7 @@
                     </div>
                     <div class="metric-grid">
                         ${metric('Подписчики', followers)}
-                        ${metric('Роль', currentUserRole || 'user')}
+                        ${metric('Роль', rolesDisplay())}
                         ${metric('Статус', isLive)}
                         ${metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'}))}
                     </div>
@@ -875,7 +935,7 @@
                         <p class="muted">Базовая информация</p>
                         <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(3,1fr)">
                             ${metric('Подписчики', followers)}
-                            ${metric('Роль', currentUserRole || 'user')}
+                            ${metric('Роль', rolesDisplay())}
                             ${metric('Описание', user.description ? user.description.slice(0, 30) + '…' : '—')}
                         </div>
                     </section>
