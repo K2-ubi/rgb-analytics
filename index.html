@@ -188,8 +188,6 @@
         return 'unknown:?:?';
     }
 
-    function tgEscape(text) { return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&'); }
-
     async function sendErrorToTelegram(error, context = '') {
         if (!TG_BOT_TOKEN || !TG_CHAT_IDS.length) return;
         try {
@@ -215,7 +213,7 @@
                 await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' })
+                    body: JSON.stringify({ chat_id: chatId, text })
                 });
             }
         } catch (e) {
@@ -233,7 +231,7 @@
     function twitchLogin() {
         if (!TWITCH_CLIENT_ID) { document.getElementById('twitchStatus').textContent = 'Twitch Client ID не настроен'; return; }
         const redirect = encodeURIComponent(window.location.href.split('#')[0]);
-        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=';
+        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers&force_verify=true';
     }
 
     function logout() {
@@ -408,38 +406,40 @@
     function analyzeQuality(followers, avgViewers, viewerCountNow) {
         const v = viewerCountNow || avgViewers || 0;
         const f = followers || 0;
-        if (!v && !f) return { label: 'Нет данных', color: '#888', score: 0, flags: [] };
-        const ratio = v > 0 ? Math.round(f / v) : 0;
+        if (!v && !f) return { label: 'Нет данных (офлайн)', color: '#888', score: 0, flags: ['💤 Стример не в эфире'] };
         const flags = [];
         let score = 50;
 
-        if (f > 0 && v === 0) {
-            flags.push('🔴 Не в эфире — оценить вовлечение нельзя');
-            score = 30;
-        } else if (ratio > 100 && v < 10) {
-            flags.push('🟡 Фоловеров намного больше зрителей — возможна накрутка');
-            score = 20;
-        } else if (ratio > 50) {
-            flags.push('🟡 Соотношение фоловеры/зрители высокое (' + ratio + ':1)');
-            score = 35;
-        } else if (ratio > 20) {
-            flags.push('🟢 Среднее вовлечение (' + ratio + ' фол/зр)');
-            score = 60;
-        } else if (ratio > 5) {
-            flags.push('✅ Отличное вовлечение (' + ratio + ' фол/зр)');
+        if (v > 100) {
+            flags.push('🔥 Высокая активность (' + v + ' зр.)');
             score = 80;
-        } else if (ratio <= 5 && f > 10) {
-            flags.push('🔥 Очень активная аудитория (' + ratio + ' фол/зр)');
-            score = 95;
+        } else if (v > 30) {
+            flags.push('✅ Хорошая аудитория (' + v + ' зр.)');
+            score = 65;
+        } else if (v > 10) {
+            flags.push('🟢 Средняя аудитория (' + v + ' зр.)');
+            score = 50;
+        } else if (v > 3) {
+            flags.push('🟡 Мало зрителей (' + v + ' зр.)');
+            score = 30;
+        } else if (v > 0) {
+            flags.push('🔴 Очень мало зрителей (' + v + ' зр.)');
+            score = 15;
         }
 
-        const density = v > 50 ? 'Высокая' : v > 10 ? 'Средняя' : 'Низкая';
-        flags.push('📊 Плотность эфира: ' + density + ' (' + v + ' зр.)');
+        if (f > 0) {
+            flags.push('📊 Фоловеров: ' + f.toLocaleString('ru-RU'));
+            if (v > 0) {
+                const ratio = Math.round(f / v);
+                if (ratio > 100) flags.push('🟡 Фоловеров намного больше зрителей (' + ratio + ':1)');
+                else if (ratio > 30) flags.push('🟢 Среднее вовлечение (' + ratio + ' фол/зр)');
+                else flags.push('🔥 Хорошее вовлечение (' + ratio + ' фол/зр)');
+            }
+        }
+        if (v > 0) flags.push('📊 Прямой эфир: ' + v + ' зр.');
 
-        let label = score >= 80 ? '✅ Хорошо' : score >= 50 ? '🟢 Средне' : score >= 30 ? '🟡 Подозрительно' : '🔴 Плохо';
-        if (!viewerCountNow && !avgViewers) { label = '⚪ Ожидание'; score = 0; }
-
-        return { label, color: score >= 80 ? '#4ade80' : score >= 50 ? '#facc15' : '#ef4444', score, flags };
+        const label = score >= 65 ? '✅ Хорошо' : score >= 45 ? '🟢 Средне' : score >= 25 ? '🟡 Слабо' : '🔴 Критично';
+        return { label, color: score >= 65 ? '#4ade80' : score >= 45 ? '#facc15' : '#ef4444', score, flags };
     }
 
     function renderAdminPanel() {
@@ -683,6 +683,7 @@
     }
 
     function metric(label, value, sub = '') {
+        if (value === undefined || value === null) value = '—';
         return `<article class="metric"><p>${label}</p><strong>${value}</strong>${sub ? `<p style="margin-top:8px">${sub}</p>` : ''}</article>`;
     }
 
@@ -820,7 +821,7 @@
 
     async function openCreator(name) {
         const token = localStorage.getItem('twitchAccessToken');
-        let user, stream, followers = '...';
+        let user, stream, followers = 0;
         try {
             const res = await fetch('https://api.twitch.tv/helix/users?login=' + name, {
                 headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
@@ -828,12 +829,10 @@
             const data = await res.json();
             user = data.data[0];
             if (user) {
-                const flRes = await fetch('https://api.twitch.tv/helix/search/channels?query=' + user.login, {
+                const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id, {
                     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
                 });
-                const flData = await flRes.json();
-                const found = flData.data && flData.data.find(c => c.id === user.id);
-                followers = found ? found.followers : 0;
+                if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
                 const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
                     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
                 });
@@ -898,10 +897,8 @@
                         <h2>Канал</h2>
                         <div class="content-item"><span>Фоловеры</span><b>${followers}</b></div>
                         <div class="content-item"><span>Логин</span><b>${name}</b></div>
-                        <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
-                        <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
-                    </section>
-                </div>` : `
+                        <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>                        <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
+                    </section>` : `
                 <div class="analytics-grid">
                     <section class="card span-12">
                         <h2>Канал</h2>
@@ -978,16 +975,13 @@
         const user = currentTwitchUser;
         if (!user) return;
         const token = localStorage.getItem('twitchAccessToken');
-        let followers = '...';
+        let followers = 0;
         let streamInfo = null;
         try {
-            const flRes = await fetch('https://api.twitch.tv/helix/search/channels?query=' + user.login, {
+            const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id, {
                 headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
             });
-            const flData = await flRes.json();
-            const found = flData.data && flData.data.find(c => c.id === user.id);
-            followers = found ? found.followers : 0;
-
+            if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
             const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
                 headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
             });
