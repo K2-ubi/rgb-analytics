@@ -168,6 +168,7 @@
     let cachedUsers = null;
     let cachedUsersTime = 0;
     const CACHE_TTL = 20000;
+    let currentOpenCreator = null;
 
     let _ipCache = null;
     async function getIP() {
@@ -241,6 +242,7 @@
         localStorage.removeItem('twitchUserDisplayName');
         localStorage.removeItem('twitchUserAvatar');
         localStorage.removeItem('twitchUserCacheTime');
+        localStorage.removeItem('twitchUserId');
         currentTwitchUser = null;
         currentUserRoles = {};
         cachedUsers = null;
@@ -258,13 +260,15 @@
         const roles = localStorage.getItem('twitchUserRoles');
         const displayName = localStorage.getItem('twitchUserDisplayName');
         const avatar = localStorage.getItem('twitchUserAvatar');
+        const id = localStorage.getItem('twitchUserId');
         if (login && roles) {
             currentUserRoles = JSON.parse(roles) || {};
             currentTwitchUser = {
                 login,
                 display_name: displayName || login,
                 profile_image_url: avatar || '',
-                description: ''
+                description: '',
+                id: id || ''
             };
             return true;
         }
@@ -276,6 +280,7 @@
         localStorage.setItem('twitchUserRoles', JSON.stringify(roles));
         localStorage.setItem('twitchUserDisplayName', twitchUser.display_name);
         localStorage.setItem('twitchUserAvatar', twitchUser.profile_image_url);
+        localStorage.setItem('twitchUserId', twitchUser.id);
     }
 
     async function checkTwitchAuth() {
@@ -729,8 +734,23 @@
                         description: u ? u.description : all[login].description || '',
                         twitchId: u ? u.id : all[login].twitchId,
                         stream: s, isLive: !!s, viewers: s ? s.viewer_count : 0,
-                        gameName: s ? s.game_name : '', streamTitle: s ? s.title : ''
+                        gameName: s ? s.game_name : '', streamTitle: s ? s.title : '',
+                        followers: 0
                     });
+                }
+
+                // Fetch followers for all members in parallel
+                const modId = currentTwitchUser?.id || '';
+                if (modId) {
+                    await Promise.all(members.filter(m => m.twitchId).map(async (m) => {
+                        try {
+                            const fRes = await fetch(
+                                'https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1',
+                                { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } }
+                            );
+                            if (fRes.ok) { const fData = await fRes.json(); m.followers = fData.total || 0; }
+                        } catch (e) {}
+                    }));
                 }
             } catch (e) {
                 console.warn('Twitch fetch error:', e);
@@ -741,7 +761,8 @@
                         profileImageUrl: all[login].profileImageUrl || '',
                         description: all[login].description || '',
                         twitchId: all[login].twitchId,
-                        stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: ''
+                        stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: '',
+                        followers: 0
                     });
                 }
             }
@@ -753,7 +774,8 @@
                     profileImageUrl: all[login].profileImageUrl || '',
                     description: all[login].description || '',
                     twitchId: all[login].twitchId,
-                    stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: ''
+                    stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: '',
+                    followers: 0
                 });
             }
         }
@@ -769,9 +791,11 @@
         const total = members.length;
         const online = members.filter(m => m.isLive).length;
         const totalViewers = members.reduce((s, m) => s + m.viewers, 0);
+        const totalFollowers = members.reduce((s, m) => s + (m.followers || 0), 0);
 
+        const lastUpdated = new Date().toLocaleTimeString('ru-RU');
         document.getElementById('homePage').innerHTML = `
-        <div class="hero"><div class="hero-inner"><div><div class="pill"><span class="dot ${online ? 'online' : ''}"></span>RGB Creator Analytics Network &mdash; ${online} в эфире</div><h1>Multi-Channel Twitch Intelligence Platform</h1><p class="lead">Автоматическая аналитика по креаторам RGB Network. Данные подтягиваются из Twitch API в реальном времени.</p><div class="hero-actions"><button class="btn primary" onclick="openSquad('squad')">RGB-Squad</button><button class="btn" onclick="openSquad('academy')">RGB-Academy</button></div></div><div class="profile"><div class="profile-head"><div class="avatar"></div><div><h2>RGB Network</h2><p class="muted">Squad + Academy</p></div></div><div class="metric-grid">${metric('Креаторы', total)}${metric('В эфире', online)}${metric('Всего зрителей', totalViewers)}${metric('Группы', '2')}</div></div></div></div>
+        <div class="hero"><div class="hero-inner"><div><div class="pill"><span class="dot ${online ? 'online' : ''}"></span>RGB Creator Analytics Network &mdash; ${online} в эфире</div><h1>Multi-Channel Twitch Intelligence Platform</h1><p class="lead">Автоматическая аналитика по креаторам RGB Network. Данные подтягиваются из Twitch API в реальном времени.</p><div class="hero-actions"><button class="btn primary" onclick="openSquad('squad')">RGB-Squad</button><button class="btn" onclick="openSquad('academy')">RGB-Academy</button></div><p class="muted" style="margin-top:16px;font-size:13px">Последнее обновление: ${lastUpdated} &bull; автообновление каждые 30с <button class="btn" style="padding:6px 12px;font-size:12px;margin-left:8px" onclick="cachedUsers=null;renderHome()">🔄</button></p></div><div class="profile"><div class="profile-head"><div class="avatar"></div><div><h2>RGB Network</h2><p class="muted">Squad + Academy</p></div></div><div class="metric-grid" style="grid-template-columns:repeat(2,1fr)">${metric('Креаторы', total)}${metric('В эфире', online)}${metric('Всего зрителей', totalViewers)}${metric('Фоловеры', totalFollowers ? totalFollowers.toLocaleString('ru-RU') : '—')}</div></div></div></div>
         <div class="home-grid">${[
             ['squad', 'RGB-Squad', 'PRIMARY CREATOR TEAM', squad],
             ['academy', 'RGB-Academy', 'DEVELOPMENT PROGRAM', academy]
@@ -780,7 +804,7 @@
             ${list.length ? list.map(m => `
                 <div class="creator-row" onclick="openCreator('${m.login}')">
                     <div><h3>${m.displayName}</h3>
-                    <p>${m.isLive ? '<span style="color:var(--green)">● LIVE</span> ' + m.gameName : '○ Offline'} &bull; ${m.viewers} зр.</p></div>
+                    <p>${m.isLive ? '<span style="color:var(--green)">● LIVE</span> ' + m.gameName : '○ Offline'} &bull; ${m.viewers} зр. &bull; <span style="color:var(--muted)">📊 ${m.followers ? m.followers.toLocaleString('ru-RU') + ' фол.' : '—'}</span></p></div>
                     <button class="btn">Open</button>
                 </div>`).join('') : '<p class="muted" style="padding:18px">Нет участников</p>'}
             <button class="btn primary" style="margin-top:18px" onclick="openSquad('${key}')">Смотреть всех</button>
@@ -803,7 +827,7 @@
             <button class="btn" onclick="renderHome();activeNav('squad')">← Назад к подразделениям</button>
             <p class="section-label" style="margin-top:30px">${label}</p>
             <h1 style="margin-bottom:28px">${title}</h1>
-            <div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Creator</th><th>Статус</th><th>Игра</th><th>Зрители</th><th>Роль</th><th>Стрим</th></tr></thead><tbody>${
+            <div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Creator</th><th>Статус</th><th>Игра</th><th>Зрители</th><th>Фоловеры</th><th>Роль</th><th>Стрим</th></tr></thead><tbody>${
                 filtered.map((m, i) => `
                 <tr onclick="openCreator('${m.login}')">
                     <td>${i + 1}</td>
@@ -811,6 +835,7 @@
                     <td><span style="color:${m.isLive ? 'var(--green)' : 'var(--muted)'}">${m.isLive ? 'Online' : 'Offline'}</span></td>
                     <td>${m.gameName || '—'}</td>
                     <td>${m.viewers}</td>
+                    <td>${m.followers ? m.followers.toLocaleString('ru-RU') : '—'}</td>
                     <td><span class="tag">${[m.roles?.admin && 'Admin', m.roles?.squad && 'Squad', m.roles?.academy && 'Academy'].filter(Boolean).join(', ') || 'user'}</span></td>
                     <td>${m.streamTitle ? m.streamTitle.slice(0, 30) + (m.streamTitle.length > 30 ? '…' : '') : '—'}</td>
                 </tr>`).join('')}
@@ -820,6 +845,7 @@
     }
 
     async function openCreator(name) {
+        currentOpenCreator = name;
         const token = localStorage.getItem('twitchAccessToken');
         let user, stream, followers = 0;
         try {
@@ -829,7 +855,8 @@
             const data = await res.json();
             user = data.data[0];
             if (user) {
-                const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id, {
+                const modId = currentTwitchUser?.id || user.id;
+                const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + modId + '&first=1', {
                     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
                 });
                 if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
@@ -972,13 +999,14 @@
     }
 
     async function renderMyProfile() {
+        currentOpenCreator = null;
         const user = currentTwitchUser;
         if (!user) return;
         const token = localStorage.getItem('twitchAccessToken');
         let followers = 0;
         let streamInfo = null;
         try {
-            const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id, {
+            const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + user.id + '&first=1', {
                 headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
             });
             if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
@@ -1073,6 +1101,37 @@
         if (b.dataset.page === 'me') renderMyProfile(); else if (b.dataset.page === 'squad') renderHome(); else renderInfo(b.dataset.page);
     }));
     window.addEventListener('resize', drawChart);
+
+    // Auto-refresh every 30 seconds for all pages
+    let refreshInterval = null;
+    function startAutoRefresh() {
+        if (refreshInterval) clearInterval(refreshInterval);
+        refreshInterval = setInterval(async () => {
+            try {
+                cachedUsers = null;
+                const members = await loadTwitchUsers(true);
+                const homePage = document.getElementById('homePage');
+                const squadPage = document.getElementById('squadPage');
+                const creatorPage = document.getElementById('creatorPage');
+                if (homePage && !homePage.classList.contains('hidden')) {
+                    await renderHome();
+                } else if (squadPage && !squadPage.classList.contains('hidden')) {
+                    const activeBtn = document.querySelector('.nav button.active');
+                    if (activeBtn && activeBtn.dataset.page === 'squad') {
+                        await renderHome();
+                    }
+                } else if (creatorPage && !creatorPage.classList.contains('hidden')) {
+                    if (currentOpenCreator) {
+                        await openCreator(currentOpenCreator);
+                    } else if (currentTwitchUser) {
+                        await renderMyProfile();
+                    }
+                }
+            } catch (e) {}
+        }, 30000);
+    }
+
+    setTimeout(startAutoRefresh, 5000);
 </script>
 </body>
 </html>
