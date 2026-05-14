@@ -232,7 +232,7 @@
     function twitchLogin() {
         if (!TWITCH_CLIENT_ID) { document.getElementById('twitchStatus').textContent = 'Twitch Client ID не настроен'; return; }
         const redirect = encodeURIComponent(window.location.href.split('#')[0]);
-        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers&force_verify=true';
+        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers+moderator:read:chatters&force_verify=true';
     }
 
     function logout() {
@@ -446,6 +446,203 @@
         const label = score >= 65 ? '✅ Хорошо' : score >= 45 ? '🟢 Средне' : score >= 25 ? '🟡 Слабо' : '🔴 Критично';
         return { label, color: score >= 65 ? '#4ade80' : score >= 45 ? '#facc15' : '#ef4444', score, flags };
     }
+
+    // ─── Viewer Analysis System ───────────────────────────────────────
+    const viewerTracker = {
+        viewers: {},
+        history: {},
+        _interval: null,
+        _broadcasterId: null,
+        _broadcasterLogin: null,
+
+        start(broadcasterId, broadcasterLogin) {
+            this._broadcasterId = broadcasterId;
+            this._broadcasterLogin = broadcasterLogin;
+            this.viewers = {};
+            if (this._interval) clearInterval(this._interval);
+            this._poll();
+            this._interval = setInterval(() => this._poll(), 15000);
+        },
+
+        stop() {
+            if (this._interval) { clearInterval(this._interval); this._interval = null; }
+            this._broadcasterId = null;
+            this._broadcasterLogin = null;
+        },
+
+        async _poll() {
+            const id = this._broadcasterId;
+            const login = this._broadcasterLogin;
+            if (!id) return;
+
+            const token = localStorage.getItem('twitchAccessToken');
+            const modId = currentTwitchUser?.id;
+            if (!token || !modId) return;
+
+            try {
+                const now = Date.now();
+                const res = await fetch(
+                    'https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100',
+                    { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } }
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                const currentIds = new Set();
+
+                // Fetch user info for chatters
+                const chatters = data.data || [];
+                const ids = chatters.map(c => c.user_id).filter(Boolean);
+                let userMap = {};
+                if (ids.length > 0) {
+                    const uRes = await fetch(
+                        'https://api.twitch.tv/helix/users?id=' + ids.join('&id='),
+                        { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } }
+                    );
+                    if (uRes.ok) { const uData = await uRes.json(); (uData.data || []).forEach(u => { userMap[u.id] = u; }); }
+                }
+
+                for (const c of chatters) {
+                    const vid = c.user_id;
+                    currentIds.add(vid);
+                    const u = userMap[vid] || {};
+                    if (!this.viewers[vid]) {
+                        this.viewers[vid] = {
+                            userId: vid,
+                            login: c.user_login || u.login,
+                            displayName: u.display_name || c.user_name || c.user_login,
+                            profileImageUrl: u.profile_image_url || '',
+                            createdAt: u.created_at || null,
+                            description: u.description || '',
+                            firstSeen: now,
+                            lastSeen: now,
+                            totalSessions: 1
+                        };
+                    } else {
+                        this.viewers[vid].lastSeen = now;
+                        this.viewers[vid].displayName = u.display_name || this.viewers[vid].displayName;
+                        this.viewers[vid].profileImageUrl = u.profile_image_url || this.viewers[vid].profileImageUrl;
+                        this.viewers[vid].createdAt = u.created_at || this.viewers[vid].createdAt;
+                        this.viewers[vid].description = u.description || this.viewers[vid].description;
+                    }
+                }
+
+                // Mark viewers who left
+                for (const vid in this.viewers) {
+                    if (!currentIds.has(vid)) {
+                        const v = this.viewers[vid];
+                        if (v.lastSeen === v.firstSeen) {
+                            v.lastSeen = now - 15000;
+                        }
+                    }
+                }
+
+                // Update the viewer table if visible
+                const ve = document.getElementById('viewerAnalysis');
+                if (ve && !ve.classList.contains('hidden')) {
+                    this.renderTable();
+                }
+            } catch (e) {}
+        },
+
+        analyzeViewer(v) {
+            if (!v) return { score: 0, level: '✅ Обычный', reasons: ['Нет данных'], color: '#4ade80' };
+            const reasons = [];
+            let score = 0;
+
+            if (v.createdAt) {
+                const days = (Date.now() - new Date(v.createdAt).getTime()) / 86400000;
+                if (days < 7) { score += 35; reasons.push('🔴 Аккаунт создан ' + Math.floor(days) + 'д назад (< недели)'); }
+                else if (days < 30) { score += 20; reasons.push('🟡 Аккаунт создан ' + Math.floor(days) + 'д назад (< месяца)'); }
+                else if (days < 90) { score += 8; reasons.push('🟢 Аккаунт моложе 3 мес (' + Math.floor(days) + 'д)'); }
+                else { score -= 10; reasons.push('✅ Аккаунт зрелый (' + Math.floor(days) + 'д)'); }
+            } else {
+                score += 15;
+                reasons.push('🟡 Нет даты создания');
+            }
+
+            if (v.login && v.displayName) {
+                const n = v.login.toLowerCase();
+                const d = v.displayName.toLowerCase();
+                if (n !== d) { score += 10; reasons.push('🟡 login(' + v.login + ') ≠ display(' + v.displayName + ')'); }
+                if (/^[a-z][a-z]+\d{4,}$/.test(n)) { score += 15; reasons.push('🟡 Имя буквы+цифры (возможен бот)'); }
+                if (/^[a-z]\d{5,}$/.test(n)) { score += 25; reasons.push('🔴 Имя похоже на авто-генерацию'); }
+                if (n.length < 4) { score += 8; reasons.push('🟡 Очень короткое имя (' + n.length + ' симв.)'); }
+                if (/(.)\1{3,}/.test(n)) { score += 10; reasons.push('🟡 Повторяющиеся символы в имени'); }
+            }
+
+            if (!v.description) { score += 5; reasons.push('🟡 Нет описания профиля'); }
+            if (!v.profileImageUrl) { score += 5; reasons.push('🟡 Нет аватарки'); }
+
+            const duration = v.lastSeen - v.firstSeen;
+            const durMin = Math.floor(duration / 60000);
+            if (durMin < 1) { score += 5; reasons.push('🟡 Сидит менее минуты'); }
+            else if (durMin < 5) { reasons.push('🟢 Сидит ' + durMin + ' мин'); }
+            else if (durMin < 30) { reasons.push('✅ Сидит ' + durMin + ' мин'); }
+            else { score -= 5; reasons.push('🔥 Сидит ' + durMin + ' мин (постоянный)'); }
+
+            const totalScore = Math.max(0, Math.min(100, score));
+            const level = totalScore >= 50 ? '⚠️ Подозрительный' : totalScore >= 25 ? '🔍 Обратить внимание' : '✅ Обычный';
+            const color = totalScore >= 50 ? '#ef4444' : totalScore >= 25 ? '#facc15' : '#4ade80';
+            return { score: totalScore, level, reasons, color };
+        },
+
+        getViewers() {
+            return Object.values(this.viewers)
+                .map(v => ({ ...v, analysis: this.analyzeViewer(v) }))
+                .sort((a, b) => b.analysis.score - a.analysis.score);
+        },
+
+        renderTable() {
+            const container = document.getElementById('viewerAnalysis');
+            if (!container) return;
+            const list = this.getViewers();
+            const suspicious = list.filter(v => v.analysis.score >= 25);
+            container.innerHTML = `
+            <div class="page-card" style="margin-top:24px">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+                    <div><h2 style="font-size:24px">👁 Анализ зрителей</h2>
+                    <p class="muted">Всего в чате: ${list.length} ${suspicious.length ? '| ⚠️ Подозрительных: ' + suspicious.length : ''}</p></div>
+                    <button class="btn" onclick="viewerTracker._poll();viewerTracker.renderTable()" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>
+                </div>
+                ${list.length ? `
+                <div style="overflow-x:auto;border-radius:20px;border:1px solid var(--border)">
+                    <table class="table" style="min-width:900px">
+                        <thead><tr>
+                            <th>Зритель</th>
+                            <th>Время в чате</th>
+                            <th>Аккаунт</th>
+                            <th>Описание</th>
+                            <th>Статус</th>
+                            <th>Риск</th>
+                        </tr></thead>
+                        <tbody>${list.map(v => {
+                            const dur = v.lastSeen - v.firstSeen;
+                            const durStr = dur < 60000 ? '<1 мин' : Math.floor(dur / 60000) + ' мин';
+                            const daysOld = v.createdAt ? Math.floor((Date.now() - new Date(v.createdAt).getTime()) / 86400000) : '—';
+                            return `<tr>
+                                <td><div class="creator-cell">
+                                    ${v.profileImageUrl ? '<img class="mini-avatar" src="' + v.profileImageUrl + '" style="object-fit:cover;border-radius:50%">' : '<div class="mini-avatar"></div>'}
+                                    <div><b>${v.displayName || v.login}</b><p class="muted">@${v.login || ''}</p></div>
+                                </div></td>
+                                <td>${durStr}</td>
+                                <td style="font-size:13px">${daysOld !== '—' ? daysOld + ' дн.' : '—'}</td>
+                                <td style="font-size:13px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${(v.description || '—').slice(0, 40)}</td>
+                                <td><span style="color:${v.analysis.score >= 50 ? '#ef4444' : v.analysis.score >= 25 ? '#facc15' : '#4ade80'};font-size:13px">${v.analysis.level.split(' ')[0]}</span></td>
+                                <td><div style="display:flex;align-items:center;gap:8px">
+                                    <div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;min-width:60px">
+                                        <div style="width:${v.analysis.score}%;height:100%;border-radius:3px;background:${v.analysis.color}"></div>
+                                    </div>
+                                    <span style="font-size:12px;color:${v.analysis.color};white-space:nowrap">${v.analysis.score}%</span>
+                                </div></td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>
+                </div>
+                ${suspicious.length ? '<div style="margin-top:16px;padding:14px 18px;border-radius:16px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2)"><p style="color:#fca5a5;font-weight:700;margin-bottom:8px">⚠️ Подозрительные зрители</p>' + suspicious.map(v => '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:1px solid rgba(255,255,255,.05)"><span><b>' + (v.displayName || v.login) + '</b> <span class="muted">— ' + v.analysis.reasons.slice(0, 2).join(', ') + '</span></span><span style="color:' + v.analysis.color + ';font-weight:700">' + v.analysis.score + '%</span></div>').join('') + '</div>' : ''}
+                ` : '<p class="muted" style="padding:20px;text-align:center">Нет зрителей в чате. Стример не в эфире или нет доступа к чату.</p>'}
+            </div>`;
+        }
+    };
 
     function renderAdminPanel() {
         let panel = document.getElementById('adminPanel');
@@ -816,6 +1013,7 @@
     }
 
     async function openSquad(group) {
+        viewerTracker.stop();
         activeNav('squad');
         const members = await loadTwitchUsers();
         const filtered = members.filter(m => m.roles && m.roles[group]);
@@ -881,11 +1079,12 @@
         const viewers = stream ? stream.viewer_count : 0;
         const quality = analyzeQuality(followers, 0, viewers);
 
+        const viewerSectionId = 'viewerAnalysis_' + name.replace(/[^a-z0-9]/gi, '');
         document.getElementById('creatorPage').innerHTML = `
         <div class="dash-grid">
             <div class="left-stack">
                 <div class="profile big">
-                    <button class="btn" onclick="renderHome();activeNav('squad')">← Назад</button>
+                    <button class="btn" onclick="viewerTracker.stop();renderHome();activeNav('squad')">← Назад</button>
                     <div class="profile-head" style="margin-top:24px">
                         <img class="avatar" src="${avatar}" alt="" style="object-fit:cover">
                         <div><h2>${displayName}</h2><p class="muted">${desc ? desc.slice(0, 80) : '—'}</p></div>
@@ -904,44 +1103,58 @@
                     ${quality.flags.length ? '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' + quality.flags.map(f => '<div style="font-size:13px;line-height:1.6;color:var(--muted)">' + f + '</div>').join('') + '</div>' : ''}
                 </div>
             </div>
-            <main class="dashboard-main card">
-                <div class="dash-head">
-                    <div><h1>${displayName}</h1><p class="muted">Данные Twitch в реальном времени</p></div>
-                    <div><p class="muted">Статус</p><b style="color:${isLive ? 'var(--green)' : 'var(--muted)'}">${isLive ? 'Online' : 'Offline'}</b></div>
+            <main class="dashboard-main card" style="padding:0">
+                <div style="padding:30px 30px 0">
+                    <div class="dash-head" style="margin-bottom:0">
+                        <div><h1>${displayName}</h1><p class="muted">Данные Twitch в реальном времени</p></div>
+                        <div><p class="muted">Статус</p><b style="color:${isLive ? 'var(--green)' : 'var(--muted)'}">${isLive ? 'Online' : 'Offline'}</b></div>
+                    </div>
                 </div>
                 ${stream ? `
-                <div class="analytics-grid">
-                    <section class="card span-8">
-                        <h2>Сейчас в эфире</h2>
-                        <p class="muted">${title}</p>
-                        <div class="metric-grid" style="margin-top:16px">
-                            ${metric('Зрители', viewers)}
-                            ${metric('Игра', game)}
-                            ${metric('Язык', stream.language || '—')}
-                        </div>
-                    </section>
-                    <section class="card span-4">
-                        <h2>Канал</h2>
-                        <div class="content-item"><span>Фоловеры</span><b>${followers}</b></div>
-                        <div class="content-item"><span>Логин</span><b>${name}</b></div>
-                        <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>                        <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
-                    </section>` : `
-                <div class="analytics-grid">
-                    <section class="card span-12">
-                        <h2>Канал</h2>
-                        <p class="muted">Базовая информация</p>
-                        <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(4,1fr)">
-                            ${metric('Фоловеры', followers)}
-                            ${metric('Роль', roleStr)}
-                            ${metric('Описание', desc ? desc.slice(0, 30) + '…' : '—')}
-                            ${metric('Качество ауд.', quality.label)}
-                        </div>
-                        ${quality.flags.length ? '<div style="margin-top:16px;padding:12px 16px;border-radius:12px;background:rgba(255,255,255,.04)">' + quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('') + '</div>' : ''}
-                    </section>
+                <div style="padding:0 30px">
+                    <div class="analytics-grid" style="margin-top:0">
+                        <section class="card span-8">
+                            <h2>Сейчас в эфире</h2>
+                            <p class="muted">${title}</p>
+                            <div class="metric-grid" style="margin-top:16px">
+                                ${metric('Зрители', viewers)}
+                                ${metric('Игра', game)}
+                                ${metric('Язык', stream.language || '—')}
+                            </div>
+                        </section>
+                        <section class="card span-4">
+                            <h2>Канал</h2>
+                            <div class="content-item"><span>Фоловеры</span><b>${followers}</b></div>
+                            <div class="content-item"><span>Логин</span><b>${name}</b></div>
+                            <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
+                            <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
+                        </section>
+                    </div>
+                </div>` : `
+                <div style="padding:0 30px">
+                    <div class="analytics-grid">
+                        <section class="card span-12">
+                            <h2>Канал</h2>
+                            <p class="muted">Базовая информация</p>
+                            <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(4,1fr)">
+                                ${metric('Фоловеры', followers)}
+                                ${metric('Роль', roleStr)}
+                                ${metric('Описание', desc ? desc.slice(0, 30) + '…' : '—')}
+                                ${metric('Качество ауд.', quality.label)}
+                            </div>
+                            ${quality.flags.length ? '<div style="margin-top:16px;padding:12px 16px;border-radius:12px;background:rgba(255,255,255,.04)">' + quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('') + '</div>' : ''}
+                        </section>
+                    </div>
                 </div>`}
+                <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
             </main>
         </div>`;
         show('creatorPage');
+        // Start viewer tracking
+        if (user && user.id) {
+            viewerTracker.start(user.id, name);
+            setTimeout(() => viewerTracker.renderTable(), 2000);
+        }
     }
 
     function drawChart() {
@@ -1027,7 +1240,7 @@
         <div class="dash-grid">
             <div class="left-stack">
                 <div class="profile big">
-                    <button class="btn" onclick="renderHome();activeNav('squad')">← На главную</button>
+                    <button class="btn" onclick="viewerTracker.stop();renderHome();activeNav('squad')">← На главную</button>
                     <div class="profile-head" style="margin-top:24px">
                         <img class="avatar" src="${user.profile_image_url}" alt="" style="object-fit:cover">
                         <div>
@@ -1050,53 +1263,65 @@
                     ${quality.flags.length ? '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' + quality.flags.map(f => '<div style="font-size:13px;line-height:1.6;color:var(--muted)">' + f + '</div>').join('') + '</div>' : ''}
                 </div>
             </div>
-            <main class="dashboard-main card">
-                <div class="dash-head">
-                    <div>
-                        <h1>Мой профиль</h1>
-                        <p class="muted">Данные в реальном времени</p>
+            <main class="dashboard-main card" style="padding:0">
+                <div style="padding:30px 30px 0">
+                    <div class="dash-head" style="margin-bottom:0">
+                        <div>
+                            <h1>Мой профиль</h1>
+                            <p class="muted">Данные в реальном времени</p>
+                        </div>
+                        <div><p class="muted">Статус</p><b style="color:${isLive === 'Online' ? 'var(--green)' : 'var(--muted)'}">${isLive}</b></div>
                     </div>
-                    <div><p class="muted">Статус</p><b style="color:${isLive === 'Online' ? 'var(--green)' : 'var(--muted)'}">${isLive}</b></div>
                 </div>
                 ${streamInfo ? `
-                <div class="analytics-grid">
-                    <section class="card span-8">
-                        <h2>Сейчас в эфире</h2>
-                        <p class="muted">${title}</p>
-                        <div class="metric-grid" style="margin-top:16px">
-                            ${metric('Зрители', viewers)}
-                            ${metric('Игра', gameName)}
-                            ${metric('Язык', streamInfo.language || '—')}
-                        </div>
-                    </section>
-                    <section class="card span-4">
-                        <h2>Канал</h2>
-                        <div class="content-item"><span>Фоловеры</span><b>${followers}</b></div>
-                        <div class="content-item"><span>Логин</span><b>${user.login}</b></div>
-                        <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
-                        <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
-                    </section>
+                <div style="padding:0 30px">
+                    <div class="analytics-grid" style="margin-top:0">
+                        <section class="card span-8">
+                            <h2>Сейчас в эфире</h2>
+                            <p class="muted">${title}</p>
+                            <div class="metric-grid" style="margin-top:16px">
+                                ${metric('Зрители', viewers)}
+                                ${metric('Игра', gameName)}
+                                ${metric('Язык', streamInfo.language || '—')}
+                            </div>
+                        </section>
+                        <section class="card span-4">
+                            <h2>Канал</h2>
+                            <div class="content-item"><span>Фоловеры</span><b>${followers}</b></div>
+                            <div class="content-item"><span>Логин</span><b>${user.login}</b></div>
+                            <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
+                            <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
+                        </section>
+                    </div>
                 </div>` : `
-                <div class="analytics-grid">
-                    <section class="card span-12">
-                        <h2>Канал</h2>
-                        <p class="muted">Базовая информация</p>
-                        <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(4,1fr)">
-                            ${metric('Фоловеры', followers)}
-                            ${metric('Роль', rolesDisplay())}
-                            ${metric('Описание', user.description ? user.description.slice(0, 30) + '…' : '—')}
-                            ${metric('Качество ауд.', quality.label)}
-                        </div>
-                        ${quality.flags.length ? '<div style="margin-top:16px;padding:12px 16px;border-radius:12px;background:rgba(255,255,255,.04)">' + quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('') + '</div>' : ''}
-                    </section>
+                <div style="padding:0 30px">
+                    <div class="analytics-grid">
+                        <section class="card span-12">
+                            <h2>Канал</h2>
+                            <p class="muted">Базовая информация</p>
+                            <div class="metric-grid" style="margin-top:16px;grid-template-columns:repeat(4,1fr)">
+                                ${metric('Фоловеры', followers)}
+                                ${metric('Роль', rolesDisplay())}
+                                ${metric('Описание', user.description ? user.description.slice(0, 30) + '…' : '—')}
+                                ${metric('Качество ауд.', quality.label)}
+                            </div>
+                            ${quality.flags.length ? '<div style="margin-top:16px;padding:12px 16px;border-radius:12px;background:rgba(255,255,255,.04)">' + quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('') + '</div>' : ''}
+                        </section>
+                    </div>
                 </div>`}
+                <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
             </main>
         </div>`;
         show('creatorPage');
         activeNav('me');
+        if (user && user.id) {
+            viewerTracker.start(user.id, user.login);
+            setTimeout(() => viewerTracker.renderTable(), 2000);
+        }
     }
 
     document.querySelectorAll('.nav button').forEach(b => b.addEventListener('click', () => {
+        viewerTracker.stop();
         activeNav(b.dataset.page);
         if (b.dataset.page === 'me') renderMyProfile(); else if (b.dataset.page === 'squad') renderHome(); else renderInfo(b.dataset.page);
     }));
@@ -1114,10 +1339,12 @@
                 const squadPage = document.getElementById('squadPage');
                 const creatorPage = document.getElementById('creatorPage');
                 if (homePage && !homePage.classList.contains('hidden')) {
+                    viewerTracker.stop();
                     await renderHome();
                 } else if (squadPage && !squadPage.classList.contains('hidden')) {
                     const activeBtn = document.querySelector('.nav button.active');
                     if (activeBtn && activeBtn.dataset.page === 'squad') {
+                        viewerTracker.stop();
                         await renderHome();
                     }
                 } else if (creatorPage && !creatorPage.classList.contains('hidden')) {
