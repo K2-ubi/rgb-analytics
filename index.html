@@ -134,7 +134,6 @@
     <div class="logo" style="width: 80px; height: 80px;"></div>
     <h1 style="font-size: 24px;">RGB Analytics</h1>
     <div style="display: flex; flex-direction: column; gap: 10px; width: 340px;">
-        <input type="text" id="twitchClientId" placeholder="Twitch Client ID" style="padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: white;">
         <button class="btn primary" onclick="twitchLogin()">Войти через Twitch</button>
     </div>
     <div id="twitchStatus" class="muted" style="font-size: 14px;"></div>
@@ -157,23 +156,15 @@
 </script>
 
 <script>
+    const TWITCH_CLIENT_ID = ''; // ← сюда вставь свой Client ID от Twitch
+
     let currentTwitchUser = null;
     let currentUserRole = null;
 
-    function getTwitchClientId() {
-        return localStorage.getItem('twitchClientId') || '';
-    }
-
-    function setTwitchClientId(id) {
-        localStorage.setItem('twitchClientId', id);
-    }
-
     function twitchLogin() {
-        const clientId = document.getElementById('twitchClientId').value.trim();
-        if (!clientId) { document.getElementById('twitchStatus').textContent = 'Введите Twitch Client ID'; return; }
-        setTwitchClientId(clientId);
+        if (!TWITCH_CLIENT_ID) { document.getElementById('twitchStatus').textContent = 'Twitch Client ID не настроен'; return; }
         const redirect = encodeURIComponent(window.location.href.split('#')[0]);
-        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + clientId + '&redirect_uri=' + redirect + '&response_type=token&scope=';
+        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=';
     }
 
     function logout() {
@@ -211,7 +202,7 @@
             const res = await fetch('https://api.twitch.tv/helix/users', {
                 headers: {
                     'Authorization': 'Bearer ' + token,
-                    'Client-Id': getTwitchClientId()
+                    'Client-Id': TWITCH_CLIENT_ID
                 }
             });
             if (!res.ok) {
@@ -252,11 +243,6 @@
     async function initApp() {
         const app = document.getElementById('app');
         const authBlock = document.getElementById('authBlock');
-
-        const clientId = getTwitchClientId();
-        if (clientId) {
-            document.getElementById('twitchClientId').value = clientId;
-        }
 
         const ok = await checkTwitchAuth();
         if (ok) {
