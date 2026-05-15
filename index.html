@@ -1560,6 +1560,10 @@
                             <div class="content-item"><span>Логин</span><b>${name}</b></div>
                             <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
+                            <div style="display:flex;gap:6px;margin-top:10px">
+                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                            </div>
                         </section>
                     </div>
                 </div>` : `
@@ -1579,6 +1583,10 @@
                             <div class="content-item"><span>Логин</span><b>${name}</b></div>
                             <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
+                            <div style="display:flex;gap:6px;margin-top:10px">
+                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                            </div>
                         </section>
                     </div>
                     ${quality.flags.length ? `<div style="padding:0 30px"><div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04)">${quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('')}</div></div>` : ''}
@@ -1586,7 +1594,7 @@
                 <div class="tab-bar" style="margin:0 30px">
                     <button class="tab-btn active" id="tabViewer_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderViewerAnalysis('${name}', '${user?.id || ''}')">📊 Анализ зрителей</button>
                     <button class="tab-btn" id="tabCalendar_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
-                    <button class="tab-btn" id="tabTracker_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${name}', '${user?.id || ''}')">📊 TwitchTracker</button>
+                    <button class="tab-btn" id="tabTracker_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${name}', '${user?.id || ''}')">📊 Общие данные</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
@@ -2064,6 +2072,10 @@
                             <div class="content-item"><span>Логин</span><b>${user.login}</b></div>
                             <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
+                            <div style="display:flex;gap:6px;margin-top:10px">
+                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                            </div>
                         </section>
                     </div>
                 </div>` : `
@@ -2083,6 +2095,10 @@
                             <div class="content-item"><span>Логин</span><b>${user.login}</b></div>
                             <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
+                            <div style="display:flex;gap:6px;margin-top:10px">
+                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                            </div>
                         </section>
                     </div>
                     ${quality.flags.length ? `<div style="padding:0 30px"><div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04)">${quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('')}</div></div>` : ''}
@@ -2090,7 +2106,7 @@
                 <div class="tab-bar" style="margin:0 30px">
                     <button class="tab-btn active" id="tabViewer_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderViewerAnalysis('${user.login}', '${user.id}')">📊 Анализ зрителей</button>
                     <button class="tab-btn" id="tabCalendar_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
-                    <button class="tab-btn" id="tabTracker_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${user.login}', '${user.id}')">📊 TwitchTracker</button>
+                    <button class="tab-btn" id="tabTracker_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${user.login}', '${user.id}')">📊 Общие данные</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
@@ -2442,43 +2458,18 @@
         const container = document.getElementById('trackerContainer_' + safe);
         if (!container) return;
         container.style.display = 'block';
-        container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка TwitchTracker...</p>';
+        container.innerHTML = `
+            <div class="page-card" style="margin-top:24px;text-align:center">
+                <h2 style="font-size:24px;margin-bottom:20px">📊 Общие данные: @${login}</h2>
+                <p class="muted" style="margin-bottom:28px">Статистика на внешних платформах</p>
+                <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+                    <a href="https://twitchtracker.com/${login}" target="_blank" class="btn primary" style="padding:16px 32px;font-size:18px;text-decoration:none;border-radius:16px">📈 TwitchTracker</a>
+                    <a href="https://sullygnome.com/channel/${login}" target="_blank" class="btn primary" style="padding:16px 32px;font-size:18px;text-decoration:none;border-radius:16px">📊 SullyGnome</a>
+                </div>
+                <p class="muted" style="margin-top:20px;font-size:13px">Откроются в новой вкладке</p>
+            </div>
+        `;
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-        fetch('https://twitchtracker.com/api/channels/summary/' + login)
-            .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
-            .then(data => {
-                const keys = Object.keys(data);
-                if (!keys.length) {
-                    container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">Нет данных от TwitchTracker</p>';
-                    return;
-                }
-                const minutes = data.minutes_streamed || 0;
-                const hours = Math.floor(minutes / 60);
-                const mins = minutes % 60;
-                container.innerHTML = `
-                    <div class="page-card" style="margin-top:24px">
-                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
-                            <h2 style="font-size:24px">📊 TwitchTracker: @${login}</h2>
-                            <button class="btn" onclick="renderTrackerStats('${login}', '${userId}')" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>
-                        </div>
-                        <p class="muted" style="margin-bottom:20px">Статистика за последние 30 дней</p>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px">
-                            <div class="metric"><p>📈 Средние зрители</p><strong style="font-size:28px;color:#a855f7">${data.avg_viewers || 0}</strong></div>
-                            <div class="metric"><p>🔥 Пик зрителей</p><strong style="font-size:28px;color:#a855f7">${data.max_viewers || 0}</strong></div>
-                            <div class="metric"><p>⏱ Время в эфире</p><strong style="font-size:28px">${hours}ч ${mins}м</strong></div>
-                            <div class="metric"><p>👁 Всего часов просмотра</p><strong style="font-size:28px">${(data.hours_watched || 0).toLocaleString('ru-RU')}</strong></div>
-                            <div class="metric"><p>📊 Новые фоловеры</p><strong style="font-size:28px">${(data.followers || 0).toLocaleString('ru-RU')}</strong></div>
-                            <div class="metric"><p>👥 Всего фоловеров</p><strong style="font-size:28px">${(data.followers_total || 0).toLocaleString('ru-RU')}</strong></div>
-                            ${data.rank ? `<div class="metric"><p>🏆 Рейтинг</p><strong style="font-size:28px">#${data.rank}</strong></div>` : ''}
-                        </div>
-                        <p class="muted" style="margin-top:16px;font-size:12px">Данные от <a href="https://twitchtracker.com/${login}" target="_blank" style="color:#a855f7">twitchtracker.com</a></p>
-                    </div>
-                `;
-            })
-            .catch(e => {
-                container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
-            });
     }
 
     function renderViewerAnalysis(login, userId) {
