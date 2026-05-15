@@ -1580,7 +1580,7 @@
                     <button class="btn" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
-                <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px"></div>
+                <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -2082,7 +2082,7 @@
                     <button class="btn" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
-                <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px"></div>
+                <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -2300,14 +2300,6 @@
                         viewerTracker.stop();
                         await renderHome();
                     }
-                } else if (creatorPage && !creatorPage.classList.contains('hidden')) {
-                    if (currentViewerProfileId) {
-                        await openViewerProfile(currentViewerProfileId);
-                    } else if (currentOpenCreator) {
-                        await openCreator(currentOpenCreator);
-                    } else if (currentTwitchUser) {
-                        await renderMyProfile();
-                    }
                 } else if (viewersPage && !viewersPage.classList.contains('hidden')) {
                     await renderViewersPage();
                 }
@@ -2416,26 +2408,30 @@
 
     function renderViewerAnalysis(login, userId) {
         viewerTracker.stop();
-        document.getElementById('streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '')).innerHTML = '';
+        const calId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
+        const cal = document.getElementById(calId);
+        if (cal) cal.style.display = 'none';
+        const ve = document.getElementById('viewerAnalysis');
+        if (ve) { ve.style.display = 'block'; ve.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
         viewerTracker.start(userId, login);
-        setTimeout(() => {
-            viewerTracker.renderTable();
-            const el = document.getElementById('viewerAnalysis');
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 2000);
+        setTimeout(() => viewerTracker.renderTable(), 2000);
     }
 
     async function renderStreamCalendar(login, userId) {
         viewerTracker.stop();
-        const page = document.getElementById('creatorPage');
-        page.innerHTML = '<div class="page-card"><p class="muted" style="padding:40px;text-align:center">📅 Загрузка календаря стримов...</p></div>';
+        const containerId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        document.getElementById('viewerAnalysis').style.display = 'none';
+        container.style.display = 'block';
+        container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Загрузка календаря стримов...</p>';
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         try {
             const token = localStorage.getItem('twitchAccessToken');
             const botToken = await getBotToken();
             const hdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
 
-            // Fetch VODs + stream history (past streams)
             const [archiveRes, highlightRes, streamsRes] = await Promise.all([
                 fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=archive&period=all', { headers: hdrs }),
                 fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=highlight&period=all', { headers: hdrs }),
@@ -2450,7 +2446,6 @@
 
             allVods.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-            // Group VODs by month
             const vodsByMonth = {};
             for (const vod of allVods) {
                 const d = new Date(vod.created_at);
@@ -2463,18 +2458,14 @@
             const isLive = !!liveStream;
             const now = new Date();
 
-            let html = '<div class="page-card">';
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:8px">';
-            html += '<div>';
-            html += '<button class="btn" onclick="openCreator(\'' + login + '\')" style="margin-bottom:12px;padding:6px 14px;font-size:13px">← Назад к профилю</button>';
-            html += '<h1 style="font-size:28px">📅 Календарь стримов</h1>';
-            html += '<p class="muted">' + login + ' — ' + allVods.length + ' VOD' + (isLive ? ' | 🔴 Сейчас в эфире! <b>' + liveStream.title + '</b>' : '') + '</p></div>';
-            html += '<div style="display:flex;gap:8px">';
+            let html = '<div class="page-card" style="margin-top:24px">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">';
+            html += '<div><h2 style="font-size:24px">📅 Календарь стримов</h2>';
+            html += '<p class="muted">' + login + ' — ' + allVods.length + ' VOD' + (isLive ? ' | 🔴 Сейчас в эфире!' : '') + '</p></div>';
             html += '<button class="btn" onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>';
-            html += '</div></div>';
+            html += '</div>';
             html += '<div style="display:grid;gap:24px">';
 
-            // Live stream banner if online
             if (liveStream) {
                 html += '<div style="background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.25);border-radius:20px;padding:20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">';
                 html += '<div style="width:12px;height:12px;border-radius:50%;background:#ef4444;animation:pulse 2s infinite"></div>';
@@ -2483,23 +2474,20 @@
                 html += '</div>';
             }
 
+            const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
             for (const monthKey of months) {
                 const [year, month] = monthKey.split('-').map(Number);
                 const vods = vodsByMonth[monthKey];
                 const daysWithVods = new Set();
-                const vodMap = {};
                 let monthStreamCount = 0;
                 for (const vod of vods) {
                     const day = new Date(vod.created_at).getDate();
                     daysWithVods.add(day);
-                    if (!vodMap[day]) vodMap[day] = [];
-                    vodMap[day].push(vod);
                     monthStreamCount++;
                 }
 
                 const firstDay = new Date(year, month - 1, 1).getDay();
                 const daysInMonth = new Date(year, month, 0).getDate();
-                const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
                 html += '<div style="background:rgba(255,255,255,.04);border-radius:20px;padding:20px;border:1px solid var(--border)">';
                 html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
@@ -2510,22 +2498,16 @@
                 html += ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => '<div style="font-size:11px;color:var(--muted);padding:4px 0">' + d + '</div>').join('');
 
                 const startPad = firstDay === 0 ? 6 : firstDay - 1;
-                for (let i = 0; i < startPad; i++) {
-                    html += '<div></div>';
-                }
+                for (let i = 0; i < startPad; i++) { html += '<div></div>'; }
 
                 for (let day = 1; day <= daysInMonth; day++) {
                     const hasVod = daysWithVods.has(day);
                     const isToday = now.getFullYear() === year && now.getMonth() === month - 1 && now.getDate() === day;
                     html += '<div style="position:relative;padding:8px 0;border-radius:10px;cursor:' + (hasVod ? 'pointer' : 'default') + ';background:' + (isToday ? 'rgba(168,85,247,.15)' : hasVod ? 'rgba(168,85,247,.06)' : 'transparent') + ';border:1px solid ' + (isToday ? 'rgba(168,85,247,.3)' : 'transparent') + '"';
-                    if (hasVod) {
-                        html += ' onclick="toggleStreamDay(this, \'' + login + '\', ' + year + ', ' + month + ', ' + day + ')"';
-                    }
+                    if (hasVod) { html += ' onclick="toggleStreamDay(this, \'' + login + '\', ' + year + ', ' + month + ', ' + day + ')"'; }
                     html += '>';
                     html += '<span style="font-size:14px;font-weight:' + (hasVod ? '700' : '400') + ';color:' + (hasVod ? 'white' : 'var(--muted)') + '">' + day + '</span>';
-                    if (hasVod) {
-                        html += '<div style="width:6px;height:6px;border-radius:50%;background:#a855f7;margin:2px auto 0"></div>';
-                    }
+                    if (hasVod) { html += '<div style="width:6px;height:6px;border-radius:50%;background:#a855f7;margin:2px auto 0"></div>'; }
                     html += '</div>';
                 }
                 html += '</div>';
@@ -2534,9 +2516,9 @@
             }
 
             html += '</div></div>';
-            page.innerHTML = html;
+            container.innerHTML = html;
         } catch (e) {
-            page.innerHTML = '<div class="page-card"><p class="muted" style="padding:40px;text-align:center">❌ Ошибка загрузки: ' + e.message + '</p></div>';
+            container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка загрузки: ' + e.message + '</p>';
         }
     }
 
