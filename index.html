@@ -2534,32 +2534,73 @@
         container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка...</p>';
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
+        // Fetch TwitchTracker via Worker endpoint (proxied + cached)
+        const getTt = async () => {
+            const workerUrl = await getBotWorkerUrl();
+            if (workerUrl) {
+                try {
+                    const r = await fetch(workerUrl + '/api/tracker-summary?login=' + encodeURIComponent(login));
+                    if (r.ok) return r.json();
+                } catch {}
+            }
+            // Fallback: direct (might be CORS-blocked)
+            try {
+                const r = await fetch('https://twitchtracker.com/api/channels/summary/' + login);
+                if (r.ok) return r.json();
+            } catch {}
+            return null;
+        };
         Promise.all([
-            fetch('https://twitchtracker.com/api/channels/summary/' + login).then(r => r.ok ? r.json() : null),
+            getTt(),
             db.ref('stream-chunks/' + login).once('value').then(s => s.val() || {})
         ]).then(([ttData, chunks]) => {
-            const ttKeys = ttData ? Object.keys(ttData) : [];
+            const ttKeys = ttData && typeof ttData === 'object' ? Object.keys(ttData) : [];
 
-            let totalStreams = 0, totalMinutes = 0, totalWatchTime = 0, totalFollowers = 0;
-            let sumAvgViewers = 0, maxPeakViewers = 0;
+            let csvStreams = 0, snapDays = 0, totalMinutes = 0, totalWatchTime = 0, totalFollowers = 0;
+            let sumAvgViewers = 0, maxPeakViewers = 0, snapViewerSamples = 0, snapViewerSum = 0, snapPeak = 0;
             const allGames = new Set();
             const allDates = new Set();
+            const csvDates = new Set();
             for (const dateStr of Object.keys(chunks)) {
                 const dayChunks = chunks[dateStr];
+                let daySnapViewers = [], daySnapPeak = 0;
                 for (const ts of Object.keys(dayChunks)) {
                     const c = dayChunks[ts];
-                    if (c.source !== 'sullygnome-csv') continue;
-                    totalStreams++;
-                    totalMinutes += c.durationMins || 0;
-                    totalWatchTime += c.watchTimeMins || 0;
-                    totalFollowers += c.followersGained || 0;
-                    sumAvgViewers += c.viewers || 0;
-                    if ((c.peakViewers || 0) > maxPeakViewers) maxPeakViewers = c.peakViewers;
-                    if (c.games) c.games.split(',').forEach(g => allGames.add(g.trim()));
+                    if (c.source === 'sullygnome-csv') {
+                        csvStreams++;
+                        totalMinutes += c.durationMins || 0;
+                        totalWatchTime += c.watchTimeMins || 0;
+                        totalFollowers += c.followersGained || 0;
+                        sumAvgViewers += c.viewers || 0;
+                        if ((c.peakViewers || 0) > maxPeakViewers) maxPeakViewers = c.peakViewers;
+                        if (c.games) c.games.split(',').forEach(g => allGames.add(g.trim()));
+                        csvDates.add(dateStr);
+                    } else {
+                        // Worker/frontend 15-min snapshots
+                        daySnapViewers.push(c.viewers || 0);
+                        if ((c.viewers || 0) > daySnapPeak) daySnapPeak = c.viewers || 0;
+                        totalMinutes += c.durationMins || 15;
+                        totalWatchTime += c.watchTimeMins || 0;
+                        totalFollowers += c.followersGained || 0;
+                        if (c.game) allGames.add(c.game);
+                    }
+                }
+                if (daySnapViewers.length) {
+                    snapDays++;
+                    snapViewerSum += daySnapViewers.reduce((a, b) => a + b, 0);
+                    snapViewerSamples += daySnapViewers.length;
+                    if (daySnapPeak > snapPeak) snapPeak = daySnapPeak;
                     allDates.add(dateStr);
                 }
+                if (csvDates.has(dateStr)) allDates.add(dateStr);
             }
-            const sgAvgViewers = totalStreams ? Math.round(sumAvgViewers / totalStreams) : 0;
+            // Merge stats from both sources
+            if (!csvStreams && snapViewerSamples) {
+                maxPeakViewers = snapPeak;
+                sumAvgViewers = snapViewerSum;
+            }
+            const totalStreams = csvStreams || snapDays;
+            const sgAvgViewers = totalStreams ? Math.round(sumAvgViewers / totalStreams) : snapViewerSamples ? Math.round(snapViewerSum / snapViewerSamples) : 0;
             const sgHours = Math.floor(totalMinutes / 60);
             const sgMins = totalMinutes % 60;
 
