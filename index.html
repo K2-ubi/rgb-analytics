@@ -1586,9 +1586,11 @@
                 <div class="tab-bar" style="margin:0 30px">
                     <button class="tab-btn active" id="tabViewer_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderViewerAnalysis('${name}', '${user?.id || ''}')">📊 Анализ зрителей</button>
                     <button class="tab-btn" id="tabCalendar_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
+                    <button class="tab-btn" id="tabTracker_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${name}', '${user?.id || ''}')">📊 TwitchTracker</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+                <div id="trackerContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -2088,9 +2090,11 @@
                 <div class="tab-bar" style="margin:0 30px">
                     <button class="tab-btn active" id="tabViewer_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderViewerAnalysis('${user.login}', '${user.id}')">📊 Анализ зрителей</button>
                     <button class="tab-btn" id="tabCalendar_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
+                    <button class="tab-btn" id="tabTracker_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${user.login}', '${user.id}')">📊 TwitchTracker</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+                <div id="trackerContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -2420,8 +2424,61 @@
         const safe = login.replace(/[^a-z0-9]/gi, '');
         const vt = document.getElementById('tabViewer_' + safe);
         const ct = document.getElementById('tabCalendar_' + safe);
+        const tt = document.getElementById('tabTracker_' + safe);
         if (vt) vt.className = 'tab-btn' + (active === 'viewer' ? ' active' : '');
         if (ct) ct.className = 'tab-btn' + (active === 'calendar' ? ' active' : '');
+        if (tt) tt.className = 'tab-btn' + (active === 'tracker' ? ' active' : '');
+    }
+
+    function renderTrackerStats(login, userId) {
+        setActiveTab(login, 'tracker');
+        viewerTracker.stop();
+        const ve = document.getElementById('viewerAnalysis');
+        if (ve) ve.style.display = 'none';
+        const calId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
+        const cal = document.getElementById(calId);
+        if (cal) { cal.style.display = 'none'; }
+        const safe = login.replace(/[^a-z0-9]/gi, '');
+        const container = document.getElementById('trackerContainer_' + safe);
+        if (!container) return;
+        container.style.display = 'block';
+        container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка TwitchTracker...</p>';
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        fetch('https://twitchtracker.com/api/channels/summary/' + login)
+            .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
+            .then(data => {
+                const keys = Object.keys(data);
+                if (!keys.length) {
+                    container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">Нет данных от TwitchTracker</p>';
+                    return;
+                }
+                const minutes = data.minutes_streamed || 0;
+                const hours = Math.floor(minutes / 60);
+                const mins = minutes % 60;
+                container.innerHTML = `
+                    <div class="page-card" style="margin-top:24px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+                            <h2 style="font-size:24px">📊 TwitchTracker: @${login}</h2>
+                            <button class="btn" onclick="renderTrackerStats('${login}', '${userId}')" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>
+                        </div>
+                        <p class="muted" style="margin-bottom:20px">Статистика за последние 30 дней</p>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px">
+                            <div class="metric"><p>📈 Средние зрители</p><strong style="font-size:28px;color:#a855f7">${data.avg_viewers || 0}</strong></div>
+                            <div class="metric"><p>🔥 Пик зрителей</p><strong style="font-size:28px;color:#a855f7">${data.max_viewers || 0}</strong></div>
+                            <div class="metric"><p>⏱ Время в эфире</p><strong style="font-size:28px">${hours}ч ${mins}м</strong></div>
+                            <div class="metric"><p>👁 Всего часов просмотра</p><strong style="font-size:28px">${(data.hours_watched || 0).toLocaleString('ru-RU')}</strong></div>
+                            <div class="metric"><p>📊 Новые фоловеры</p><strong style="font-size:28px">${(data.followers || 0).toLocaleString('ru-RU')}</strong></div>
+                            <div class="metric"><p>👥 Всего фоловеров</p><strong style="font-size:28px">${(data.followers_total || 0).toLocaleString('ru-RU')}</strong></div>
+                            ${data.rank ? `<div class="metric"><p>🏆 Рейтинг</p><strong style="font-size:28px">#${data.rank}</strong></div>` : ''}
+                        </div>
+                        <p class="muted" style="margin-top:16px;font-size:12px">Данные от <a href="https://twitchtracker.com/${login}" target="_blank" style="color:#a855f7">twitchtracker.com</a></p>
+                    </div>
+                `;
+            })
+            .catch(e => {
+                container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
+            });
     }
 
     function renderViewerAnalysis(login, userId) {
@@ -2430,6 +2487,9 @@
         const calId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
         const cal = document.getElementById(calId);
         if (cal) { cal.style.display = 'none'; cal.innerHTML = ''; }
+        const trId = 'trackerContainer_' + login.replace(/[^a-z0-9]/gi, '');
+        const tr = document.getElementById(trId);
+        if (tr) tr.style.display = 'none';
         const ve = document.getElementById('viewerAnalysis');
         if (ve) { ve.style.display = 'block'; ve.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
         viewerTracker.start(userId, login);
@@ -2462,6 +2522,9 @@
         const container = document.getElementById(containerId);
         if (!container) return;
         document.getElementById('viewerAnalysis').style.display = 'none';
+        const trId = 'trackerContainer_' + safe;
+        const tr = document.getElementById(trId);
+        if (tr) tr.style.display = 'none';
         container.style.display = 'block';
         container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Загрузка календаря стримов...</p>';
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2648,7 +2711,7 @@
 
                 // Bar chart
                 if (chunkTimestamps.length > 0) {
-                    html += '<p style="font-size:13px;font-weight:600;margin-bottom:10px">📊 Зрители по 15-минуткам</p>';
+                    html += '<p style="font-size:13px;font-weight:600;margin-bottom:10px">📊 Зрители</p>';
                     html += '<div style="display:flex;gap:1px;align-items:flex-end;height:100px;margin-bottom:6px">';
                     const barH = 90;
                     for (const ts of chunkTimestamps) {

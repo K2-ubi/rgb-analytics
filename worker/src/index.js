@@ -19,6 +19,7 @@ export default {
         case '/api/status': return status(env);
         case '/api/bot-info': return botInfo(env);
         case '/api/monitor-streams': return monitorStreams(env);
+        case '/api/tracker-summary': return trackerSummary(url, env);
         default: return json({ error: 'not found' }, 404);
       }
     } catch (e) {
@@ -28,6 +29,7 @@ export default {
   async scheduled(_event, env) {
     await getToken(env);
     await monitorStreams(env);
+    await fetchTrackerData(env);
   },
 };
 
@@ -234,6 +236,58 @@ async function monitorStreams(env) {
   await firebasePatch(env, 'stream-cache/_monitor', { lastRun: now, results });
 
   console.log('Monitor results:', JSON.stringify(results));
+  return results;
+}
+
+async function trackerSummary(url, env) {
+  const login = url.searchParams.get('login');
+  if (login) {
+    const r = await fetch('https://twitchtracker.com/api/channels/summary/' + login);
+    const data = r.ok ? await r.json() : {};
+    if (r.ok && Object.keys(data).length && env.FIREBASE_DB_SECRET) {
+      await firebasePatch(env, 'twitch-tracker/' + login, { ...data, updatedAt: Date.now() });
+    }
+    return json(data, r.status);
+  }
+  // No login — return cached data for all from Firebase
+  if (!env.FIREBASE_DB_SECRET) return json({ error: 'no firebase' }, 400);
+  const cached = await firebaseGet(env, 'twitch-tracker');
+  return json(cached || {});
+}
+
+async function fetchTrackerData(env) {
+  const lastRun = parseInt(await env.KV.get('tracker_last_run') || '0');
+  if (Date.now() - lastRun < 86400000) return null;
+
+  let members = [];
+  if (env.FIREBASE_DB_SECRET) {
+    try {
+      const users = await firebaseGet(env, 'twitch-users');
+      if (users) {
+        members = Object.entries(users)
+          .filter(([, u]) => u.roles && (u.roles.squad || u.roles.academy))
+          .map(([login]) => login);
+      }
+    } catch (e) { console.error('firebase read error:', e); }
+  }
+  if (!members.length) return [];
+
+  const results = {};
+  for (const login of members) {
+    try {
+      const r = await fetch('https://twitchtracker.com/api/channels/summary/' + login);
+      if (r.ok) {
+        const data = await r.json();
+        if (Object.keys(data).length) results[login] = { ...data, updatedAt: Date.now() };
+      }
+    } catch (e) { console.error('tracker error for ' + login + ':', e); }
+  }
+
+  if (Object.keys(results).length && env.FIREBASE_DB_SECRET) {
+    await firebasePatch(env, 'twitch-tracker', results);
+  }
+  await env.KV.put('tracker_last_run', String(Date.now()));
+  console.log('Tracker results:', JSON.stringify(results));
   return results;
 }
 
