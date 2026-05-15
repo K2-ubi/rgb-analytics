@@ -1,4 +1,4 @@
-name = "rgb-bot"
+name = "gentle-smoke-7903"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
@@ -7,8 +7,8 @@ binding = "KV"
 id = "9b97fb1e48274d629462f53498541224"
 
 [vars]
-REDIRECT_URI = "https://rgb-bot.YOUR-SUBDOMAIN.workers.dev/api/callback"
-WORKER_URL = "https://rgb-bot.YOUR-SUBDOMAIN.workers.dev"
+REDIRECT_URI = "https://gentle-smoke-7903.konstasil777.workers.dev/api/callback"
+WORKER_URL = "https://gentle-smoke-7903.konstasil777.workers.dev"
 
 [triggers]
 crons = ["0 */3 * * *"]
