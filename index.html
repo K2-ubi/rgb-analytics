@@ -1634,6 +1634,38 @@
         const hpInfo = hpInterpretation(hpScore);
         const hpDisplay = hpScore !== null ? hpScore + ' / 100' : '—';
 
+        // Monthly average viewers with trend
+        let avgMonth = '—', avgTrend = '';
+        try {
+            const now = new Date();
+            const thisM = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
+            const prevM = now.getMonth() === 0 ? (now.getFullYear() - 1) + '-12' : String(now.getFullYear()) + '-' + String(now.getMonth()).padStart(2, '0');
+            const [thisSnap, prevSnap] = await Promise.all([
+                db.ref('stream-chunks/' + name.toLowerCase() + '/' + thisM).once('value'),
+                db.ref('stream-chunks/' + name.toLowerCase() + '/' + prevM).once('value')
+            ]);
+            const calcAvg = (snap) => {
+                const val = snap.val() || {};
+                let sum = 0, count = 0;
+                for (const dateStr of Object.keys(val)) {
+                    for (const ts of Object.keys(val[dateStr])) {
+                        sum += val[dateStr][ts].viewers || 0;
+                        count++;
+                    }
+                }
+                return count ? Math.round(sum / count) : 0;
+            };
+            const thisAvg = calcAvg(thisSnap);
+            const prevAvg = calcAvg(prevSnap);
+            if (thisAvg > 0) {
+                avgMonth = thisAvg;
+                if (prevAvg > 0) {
+                    const diff = ((thisAvg - prevAvg) / prevAvg * 100).toFixed(0);
+                    avgTrend = thisAvg >= prevAvg ? `+${diff}%` : `${diff}%`;
+                }
+            }
+        } catch (e) {}
+
         const viewerSectionId = 'viewerAnalysis_' + name.replace(/[^a-z0-9]/gi, '');
         document.getElementById('creatorPage').innerHTML = `
         <div class="dash-grid">
@@ -1648,6 +1680,7 @@
                         ${metric('Фоловеры', followers)}
                         ${metric('Роль', roleStr)}
                         ${metric('Статус', isLive ? 'Online' : 'Offline')}
+                        ${metric('Средний онлайн', avgMonth, avgTrend ? (avgTrend.startsWith('+') ? '📈 ' + avgTrend : '📉 ' + avgTrend) : '')}
                         ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                     </div>
                 </div>
@@ -2142,6 +2175,38 @@
         const hpInfo = hpInterpretation(hpScore);
         const hpDisplay = hpScore !== null ? hpScore + ' / 100' : '—';
 
+        // Monthly average viewers with trend
+        let avgMonth = '—', avgTrend = '';
+        try {
+            const now = new Date();
+            const thisM = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
+            const prevM = now.getMonth() === 0 ? (now.getFullYear() - 1) + '-12' : String(now.getFullYear()) + '-' + String(now.getMonth()).padStart(2, '0');
+            const [thisSnap, prevSnap] = await Promise.all([
+                db.ref('stream-chunks/' + user.login.toLowerCase() + '/' + thisM).once('value'),
+                db.ref('stream-chunks/' + user.login.toLowerCase() + '/' + prevM).once('value')
+            ]);
+            const calcAvg = (snap) => {
+                const val = snap.val() || {};
+                let sum = 0, count = 0;
+                for (const dateStr of Object.keys(val)) {
+                    for (const ts of Object.keys(val[dateStr])) {
+                        sum += val[dateStr][ts].viewers || 0;
+                        count++;
+                    }
+                }
+                return count ? Math.round(sum / count) : 0;
+            };
+            const thisAvg = calcAvg(thisSnap);
+            const prevAvg = calcAvg(prevSnap);
+            if (thisAvg > 0) {
+                avgMonth = thisAvg;
+                if (prevAvg > 0) {
+                    const diff = ((thisAvg - prevAvg) / prevAvg * 100).toFixed(0);
+                    avgTrend = thisAvg >= prevAvg ? `+${diff}%` : `${diff}%`;
+                }
+            }
+        } catch (e) {}
+
         document.getElementById('creatorPage').innerHTML = `
         <div class="dash-grid">
             <div class="left-stack">
@@ -2158,6 +2223,7 @@
                         ${metric('Фоловеры', followers)}
                         ${metric('Роль', rolesDisplay())}
                         ${metric('Статус', isLive)}
+                        ${metric('Средний онлайн', avgMonth, avgTrend ? (avgTrend.startsWith('+') ? '📈 ' + avgTrend : '📉 ' + avgTrend) : '')}
                         ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                         ${metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'}))}
                     </div>
