@@ -2808,11 +2808,12 @@
                     const h = Math.max(3, Math.round(avg / maxAvg * barH));
                     const color = avg > overallAvg * 1.15 ? '#4ade80' : avg > overallAvg * 0.85 ? '#a855f7' : '#7c3aed';
                     html += '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;position:relative"';
-                    html += ' onmouseover="this.querySelector(\'.bar-tip\').style.display=\'block\';this.querySelector(\'.bar\').style.opacity=\'.8\'"';
-                    html += ' onmouseout="this.querySelector(\'.bar-tip\').style.display=\'none\';this.querySelector(\'.bar\').style.opacity=\'1\'"';
+                    html += ' onmouseover="this.querySelector(\'.bar-tip\').style.display=\'flex\';"';
+                    html += ' onmouseout="this.querySelector(\'.bar-tip\').style.display=\'none\'"';
                     html += '>';
-                    html += '<div class="bar-tip" style="display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid rgba(168,85,247,.3);color:white;padding:4px 8px;border-radius:8px;font-size:10px;white-space:nowrap;z-index:10;margin-bottom:6px;pointer-events:none">' + m + ' · ср. ' + avg + ' · пик ' + d.peak + ' · ' + d.days + ' дн.</div>';
-                    html += '<div class="bar" style="width:36px;height:' + h + 'px;border-radius:4px 4px 0 0;background:' + color + ';transition:opacity .2s;cursor:pointer"></div>';
+                    html += '<div class="bar" style="width:36px;height:' + h + 'px;border-radius:4px 4px 0 0;background:' + color + ';transition:opacity .2s;cursor:pointer;position:relative;overflow:hidden">';
+                    html += '<div class="bar-tip" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:rgba(26,26,46,.85);color:white;font-size:10px;font-weight:600;white-space:nowrap;z-index:10">' + m.slice(5) + ' · ср. ' + avg + ' · пик ' + d.peak + ' · ' + d.days + ' дн.</div>';
+                    html += '</div>';
                     html += '<span style="font-size:9px;color:var(--muted);margin-top:2px">' + m.slice(5) + '</span>';
                     html += '</div>';
                 }
