@@ -380,10 +380,6 @@
 <script>
     async function initApp() {
         try {
-            // Handle bot auth redirect first (before normal auth)
-            const isBotAuth = await handleBotAuthRedirect();
-            if (isBotAuth) return;
-
             const app = document.getElementById('app');
             const authBlock = document.getElementById('authBlock');
             const hasHash = window.location.hash.includes('access_token');
