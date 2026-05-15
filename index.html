@@ -2585,6 +2585,9 @@
         const calId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
         const cal = document.getElementById(calId);
         if (cal) { cal.style.display = 'none'; }
+        const avgId = 'avgOnlineContainer_' + login.replace(/[^a-z0-9]/gi, '');
+        const avgEl = document.getElementById(avgId);
+        if (avgEl) avgEl.style.display = 'none';
         const safe = login.replace(/[^a-z0-9]/gi, '');
         const container = document.getElementById('trackerContainer_' + safe);
         if (!container) return;
@@ -2727,6 +2730,9 @@
         const trId = 'trackerContainer_' + login.replace(/[^a-z0-9]/gi, '');
         const tr = document.getElementById(trId);
         if (tr) tr.style.display = 'none';
+        const avgId = 'avgOnlineContainer_' + login.replace(/[^a-z0-9]/gi, '');
+        const avgEl = document.getElementById(avgId);
+        if (avgEl) avgEl.style.display = 'none';
         const ve = document.getElementById('viewerAnalysis');
         if (ve) { ve.style.display = 'block'; ve.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
         viewerTracker.start(userId, login);
@@ -2760,18 +2766,28 @@
             }
             const snaps = await Promise.all(months.map(m => db.ref('stream-chunks/' + login + '/' + m).once('value')));
             const dayData = {};
-            let totalViewers = 0, totalSamples = 0;
+            let totalViewers = 0, totalSamples = 0, csvStreams = 0, csvSum = 0;
             for (const snap of snaps) {
                 const val = snap.val() || {};
                 for (const dateStr of Object.keys(val)) {
                     let daySum = 0, dayCount = 0, dayPeak = 0;
                     for (const ts of Object.keys(val[dateStr])) {
                         const c = val[dateStr][ts];
-                        daySum += c.viewers || 0;
-                        dayCount++;
-                        totalViewers += c.viewers || 0;
-                        totalSamples++;
-                        if ((c.viewers || 0) > dayPeak) dayPeak = c.viewers || 0;
+                        if (c.source === 'sullygnome-csv') {
+                            csvStreams++;
+                            csvSum += c.viewers || 0;
+                            daySum += c.viewers || 0;
+                            dayCount++;
+                            totalViewers += c.viewers || 0;
+                            totalSamples++;
+                            if ((c.peakViewers || c.viewers || 0) > dayPeak) dayPeak = c.peakViewers || c.viewers || 0;
+                        } else {
+                            daySum += c.viewers || 0;
+                            dayCount++;
+                            totalViewers += c.viewers || 0;
+                            totalSamples++;
+                            if ((c.viewers || 0) > dayPeak) dayPeak = c.viewers || 0;
+                        }
                     }
                     if (dayCount) {
                         dayData[dateStr] = { avg: Math.round(daySum / dayCount), peak: dayPeak, samples: dayCount };
@@ -2781,7 +2797,6 @@
             const overallAvg = totalSamples ? Math.round(totalViewers / totalSamples) : 0;
 
             // Previous month avg for trend
-            const prevMonth = months[1];
             let prevSum = 0, prevCount = 0;
             const prevVal = snaps[1]?.val() || {};
             for (const dateStr of Object.keys(prevVal)) {
@@ -2893,6 +2908,9 @@
         const trId = 'trackerContainer_' + safe;
         const tr = document.getElementById(trId);
         if (tr) tr.style.display = 'none';
+        const avgId = 'avgOnlineContainer_' + safe;
+        const avgEl = document.getElementById(avgId);
+        if (avgEl) avgEl.style.display = 'none';
         container.style.display = 'block';
         container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Загрузка календаря стримов...</p>';
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
