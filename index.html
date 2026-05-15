@@ -816,7 +816,7 @@
                     <div style="display:flex;gap:10px">
                         <button class="btn primary" onclick="saveBotConfig()">💾 Сохранить</button>
                         <button class="btn" onclick="loadBotConfig()">🔄 Загрузить</button>
-                        <button class="btn" onclick="window.open(document.getElementById('botWorkerUrlInput').value + '/api/auth', '_blank')" id="botAuthBtn">🔑 Авторизовать бота</button>
+                        <button class="btn" onclick="authBot()" id="botAuthBtn">🔑 Авторизовать бота</button>
                         <button class="btn" onclick="checkBotStatus()">🧪 Статус</button>
                         <button class="btn" onclick="deleteBotConfig()" style="border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#fca5a5">🗑 Сбросить</button>
                     </div>
@@ -903,6 +903,15 @@
         } catch (e) {
             status.innerHTML = '❌ Ошибка: ' + e.message;
         }
+    }
+
+    function authBot() {
+        const input = document.getElementById('botWorkerUrlInput').value.trim();
+        if (!input) { document.getElementById('botConfigStatus').innerHTML = '❌ Сначала введи URL воркера'; return; }
+        let url = input;
+        if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
+        url = url.replace(/\/$/, '') + '/api/auth';
+        window.open(url, '_blank');
     }
 
     async function checkBotStatus() {
