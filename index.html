@@ -2808,12 +2808,11 @@
                     const h = Math.max(3, Math.round(avg / maxAvg * barH));
                     const color = avg > overallAvg * 1.15 ? '#4ade80' : avg > overallAvg * 0.85 ? '#a855f7' : '#7c3aed';
                     html += '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;position:relative"';
-                    html += ' onmouseover="this.querySelector(\'.bar-tip\').style.display=\'flex\';"';
-                    html += ' onmouseout="this.querySelector(\'.bar-tip\').style.display=\'none\'"';
+                    html += ' onmouseenter="showBarTooltip(event,\'' + m + ' · ср. ' + avg + ' · пик ' + d.peak + ' · ' + d.days + ' дн.\')"';
+                    html += ' onmouseleave="hideBarTooltip()"';
+                    html += ' onmousemove="showBarTooltip(event,\'' + m + ' · ср. ' + avg + ' · пик ' + d.peak + ' · ' + d.days + ' дн.\')"';
                     html += '>';
-                    html += '<div class="bar" style="width:36px;height:' + h + 'px;border-radius:4px 4px 0 0;background:' + color + ';transition:opacity .2s;cursor:pointer;position:relative;overflow:hidden">';
-                    html += '<div class="bar-tip" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:rgba(26,26,46,.85);color:white;font-size:10px;font-weight:600;white-space:nowrap;z-index:10">' + m.slice(5) + ' · ср. ' + avg + ' · пик ' + d.peak + ' · ' + d.days + ' дн.</div>';
-                    html += '</div>';
+                    html += '<div class="bar" style="width:36px;height:' + h + 'px;border-radius:4px 4px 0 0;background:' + color + ';transition:opacity .2s;cursor:pointer"></div>';
                     html += '<span style="font-size:9px;color:var(--muted);margin-top:2px">' + m.slice(5) + '</span>';
                     html += '</div>';
                 }
@@ -3488,6 +3487,27 @@
         } catch (e) {
             status.textContent = '❌ ' + e.message;
         }
+    }
+
+    function showBarTooltip(e, html) {
+        const tip = document.getElementById('barTooltip') || (() => {
+            const t = document.createElement('div');
+            t.id = 'barTooltip';
+            t.style.cssText = 'position:fixed;z-index:99999;background:#1a1a2e;border:1px solid rgba(168,85,247,.5);color:white;padding:5px 10px;border-radius:8px;font-size:11px;white-space:nowrap;pointer-events:none;display:none;font-weight:500';
+            document.body.appendChild(t);
+            return t;
+        })();
+        tip.innerHTML = html;
+        tip.style.display = 'block';
+        let x = e.clientX + 14, y = e.clientY - 10;
+        if (x + tip.offsetWidth > window.innerWidth) x = e.clientX - tip.offsetWidth - 14;
+        if (y < 4) y = e.clientY + 14;
+        tip.style.left = x + 'px';
+        tip.style.top = y + 'px';
+    }
+    function hideBarTooltip() {
+        const tip = document.getElementById('barTooltip');
+        if (tip) tip.style.display = 'none';
     }
 
 </script>
