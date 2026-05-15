@@ -1520,10 +1520,6 @@
                         ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;padding:0 0 12px">
-                    <button class="btn" onclick="renderViewerAnalysis('${name}', '${user?.id || ''}')">📊 Анализ зрителей</button>
-                    <button class="btn" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
-                </div>
                 <div class="card">
                     <h2>Текущий стрим</h2>
                     <p class="muted" style="margin:8px 0">${title}</p>
@@ -1579,12 +1575,15 @@
                     </div>
                     ${quality.flags.length ? `<div style="padding:0 30px"><div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04)">${quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('')}</div></div>` : ''}
                 </div>`}
+                <div style="display:flex;gap:12px;padding:0 30px 16px">
+                    <button class="btn" onclick="renderViewerAnalysis('${name}', '${user?.id || ''}')">📊 Анализ зрителей</button>
+                    <button class="btn" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
+                </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px"></div>
             </main>
         </div>`;
         show('creatorPage');
-        // Start viewer tracking
         if (user && user.id) {
             viewerTracker.start(user.id, name);
             setTimeout(() => viewerTracker.renderTable(), 2000);
@@ -2020,10 +2019,6 @@
                         ${metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'}))}
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;padding:0 0 12px">
-                    <button class="btn" onclick="renderViewerAnalysis('${user.login}', '${user.id}')">📊 Анализ зрителей</button>
-                    <button class="btn" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
-                </div>
                 <div class="card">
                     <h2>Текущий стрим</h2>
                     <p class="muted" style="margin:8px 0">${title}</p>
@@ -2082,6 +2077,10 @@
                     </div>
                     ${quality.flags.length ? `<div style="padding:0 30px"><div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04)">${quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('')}</div></div>` : ''}
                 </div>`}
+                <div style="display:flex;gap:12px;padding:0 30px 16px">
+                    <button class="btn" onclick="renderViewerAnalysis('${user.login}', '${user.id}')">📊 Анализ зрителей</button>
+                    <button class="btn" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
+                </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px"></div>
             </main>
@@ -2416,38 +2415,40 @@
     }
 
     function renderViewerAnalysis(login, userId) {
-        const el = document.getElementById('viewerAnalysis');
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        viewerTracker.renderTable();
+        viewerTracker.stop();
+        document.getElementById('streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '')).innerHTML = '';
+        viewerTracker.start(userId, login);
+        setTimeout(() => {
+            viewerTracker.renderTable();
+            const el = document.getElementById('viewerAnalysis');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 2000);
     }
 
     async function renderStreamCalendar(login, userId) {
-        const containerId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
-        const container = document.getElementById(containerId);
-        if (!container) return;
-        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Загрузка календаря стримов...</p>';
+        viewerTracker.stop();
+        const page = document.getElementById('creatorPage');
+        page.innerHTML = '<div class="page-card"><p class="muted" style="padding:40px;text-align:center">📅 Загрузка календаря стримов...</p></div>';
 
         try {
             const token = localStorage.getItem('twitchAccessToken');
             const botToken = await getBotToken();
             const hdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
 
-            const [archiveRes, highlightRes] = await Promise.all([
+            // Fetch VODs + stream history (past streams)
+            const [archiveRes, highlightRes, streamsRes] = await Promise.all([
                 fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=archive&period=all', { headers: hdrs }),
-                fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=highlight&period=all', { headers: hdrs })
+                fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=highlight&period=all', { headers: hdrs }),
+                fetch('https://api.twitch.tv/helix/streams?user_id=' + userId + '&first=100', { headers: hdrs })
             ]);
 
             let allVods = [];
             if (archiveRes.ok) { const d = await archiveRes.json(); allVods = allVods.concat(d.data || []); }
             if (highlightRes.ok) { const d = await highlightRes.json(); allVods = allVods.concat(d.data || []); }
+            let liveStream = null;
+            if (streamsRes.ok) { const d = await streamsRes.json(); liveStream = d.data && d.data[0] ? d.data[0] : null; }
 
             allVods.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-            if (allVods.length === 0) {
-                container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Нет стримов за последнее время</p>';
-                return;
-            }
 
             // Group VODs by month
             const vodsByMonth = {};
@@ -2459,25 +2460,41 @@
             }
 
             const months = Object.keys(vodsByMonth).sort().reverse().slice(0, 6);
-            let html = '<div class="page-card" style="margin-top:24px">';
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px">';
-            html += '<div><h2 style="font-size:24px">📅 Календарь стримов</h2>';
-            html += '<p class="muted">Всего VOD: ' + allVods.length + '</p></div>';
+            const isLive = !!liveStream;
+            const now = new Date();
+
+            let html = '<div class="page-card">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:8px">';
+            html += '<div>';
+            html += '<button class="btn" onclick="openCreator(\'' + login + '\')" style="margin-bottom:12px;padding:6px 14px;font-size:13px">← Назад к профилю</button>';
+            html += '<h1 style="font-size:28px">📅 Календарь стримов</h1>';
+            html += '<p class="muted">' + login + ' — ' + allVods.length + ' VOD' + (isLive ? ' | 🔴 Сейчас в эфире! <b>' + liveStream.title + '</b>' : '') + '</p></div>';
+            html += '<div style="display:flex;gap:8px">';
             html += '<button class="btn" onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>';
-            html += '</div>';
+            html += '</div></div>';
             html += '<div style="display:grid;gap:24px">';
 
-            const now = new Date();
+            // Live stream banner if online
+            if (liveStream) {
+                html += '<div style="background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.25);border-radius:20px;padding:20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">';
+                html += '<div style="width:12px;height:12px;border-radius:50%;background:#ef4444;animation:pulse 2s infinite"></div>';
+                html += '<div style="flex:1;min-width:0"><b style="font-size:16px">' + liveStream.title + '</b>';
+                html += '<p class="muted" style="margin-top:4px">🎮 ' + liveStream.game_name + ' | 👁 ' + liveStream.viewer_count + ' зрителей</p></div>';
+                html += '</div>';
+            }
+
             for (const monthKey of months) {
                 const [year, month] = monthKey.split('-').map(Number);
                 const vods = vodsByMonth[monthKey];
                 const daysWithVods = new Set();
                 const vodMap = {};
+                let monthStreamCount = 0;
                 for (const vod of vods) {
                     const day = new Date(vod.created_at).getDate();
                     daysWithVods.add(day);
                     if (!vodMap[day]) vodMap[day] = [];
                     vodMap[day].push(vod);
+                    monthStreamCount++;
                 }
 
                 const firstDay = new Date(year, month - 1, 1).getDay();
@@ -2485,7 +2502,10 @@
                 const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
                 html += '<div style="background:rgba(255,255,255,.04);border-radius:20px;padding:20px;border:1px solid var(--border)">';
-                html += '<h3 style="margin-bottom:16px">' + monthNames[month - 1] + ' ' + year + '</h3>';
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+                html += '<h3>' + monthNames[month - 1] + ' ' + year + '</h3>';
+                html += '<span class="muted" style="font-size:13px">' + monthStreamCount + ' стримов</span>';
+                html += '</div>';
                 html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center">';
                 html += ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => '<div style="font-size:11px;color:var(--muted);padding:4px 0">' + d + '</div>').join('');
 
@@ -2497,28 +2517,26 @@
                 for (let day = 1; day <= daysInMonth; day++) {
                     const hasVod = daysWithVods.has(day);
                     const isToday = now.getFullYear() === year && now.getMonth() === month - 1 && now.getDate() === day;
-                    html += '<div style="position:relative;padding:6px 0;border-radius:10px;cursor:' + (hasVod ? 'pointer' : 'default') + ';background:' + (isToday ? 'rgba(168,85,247,.15)' : 'transparent') + ';border:1px solid ' + (isToday ? 'rgba(168,85,247,.3)' : 'transparent') + '"';
+                    html += '<div style="position:relative;padding:8px 0;border-radius:10px;cursor:' + (hasVod ? 'pointer' : 'default') + ';background:' + (isToday ? 'rgba(168,85,247,.15)' : hasVod ? 'rgba(168,85,247,.06)' : 'transparent') + ';border:1px solid ' + (isToday ? 'rgba(168,85,247,.3)' : 'transparent') + '"';
                     if (hasVod) {
                         html += ' onclick="toggleStreamDay(this, \'' + login + '\', ' + year + ', ' + month + ', ' + day + ')"';
                     }
                     html += '>';
-                    html += '<span style="font-size:13px;font-weight:' + (hasVod ? '700' : '400') + ';color:' + (hasVod ? 'white' : 'var(--muted)') + '">' + day + '</span>';
+                    html += '<span style="font-size:14px;font-weight:' + (hasVod ? '700' : '400') + ';color:' + (hasVod ? 'white' : 'var(--muted)') + '">' + day + '</span>';
                     if (hasVod) {
                         html += '<div style="width:6px;height:6px;border-radius:50%;background:#a855f7;margin:2px auto 0"></div>';
                     }
                     html += '</div>';
                 }
-                html += '</div>'; // grid
-
-                // Pre-build vod details for this month
+                html += '</div>';
                 html += '<div id="streamDayDetail_' + login + '_' + monthKey + '" style="margin-top:16px"></div>';
                 html += '</div>';
             }
 
             html += '</div></div>';
-            container.innerHTML = html;
+            page.innerHTML = html;
         } catch (e) {
-            container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка загрузки: ' + e.message + '</p>';
+            page.innerHTML = '<div class="page-card"><p class="muted" style="padding:40px;text-align:center">❌ Ошибка загрузки: ' + e.message + '</p></div>';
         }
     }
 
@@ -2576,33 +2594,51 @@
                 chunkData = chunkSnap.val() || {};
             } catch(e) {}
 
-            if (vods.length === 0 && Object.keys(chunkData).length === 0) {
-                detailDiv.innerHTML = '<p class="muted" style="padding:12px;text-align:center">Нет VOD за этот день</p>';
-                return;
-            }
-
             let dayHtml = '<div style="padding:16px 0">';
-            dayHtml += '<h4 style="margin-bottom:12px">🎬 Стримы ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h4>';
+            dayHtml += '<h4 style="margin-bottom:12px;font-size:18px">🎬 ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h4>';
 
             // Chunks (15-min viewer intervals)
             const chunkTimestamps = Object.keys(chunkData).sort();
             if (chunkTimestamps.length > 0) {
-                dayHtml += '<div style="margin-bottom:16px;padding:12px;border-radius:12px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.15)">';
+                const peakViewers = Math.max(1, ...chunkTimestamps.map(t => chunkData[t].viewers || 0));
+                const avgViewers = Math.round(chunkTimestamps.reduce((s, t) => s + (chunkData[t].viewers || 0), 0) / chunkTimestamps.length);
+                const durationMin = chunkTimestamps.length * 15;
+                const games = new Set(chunkTimestamps.map(t => chunkData[t].game).filter(Boolean));
+                const totalViewerCount = Object.keys(viewerTracker.viewers).length;
+
+                dayHtml += '<div style="margin-bottom:16px;padding:16px;border-radius:16px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.15)">';
+                dayHtml += '<div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:12px">';
+                dayHtml += '<div><span class="muted" style="font-size:12px">⏱ Длительность</span><p style="font-weight:700">' + (durationMin >= 60 ? Math.floor(durationMin / 60) + 'ч ' + (durationMin % 60) + 'м' : durationMin + 'м') + '</p></div>';
+                dayHtml += '<div><span class="muted" style="font-size:12px">📈 Пик зрителей</span><p style="font-weight:700;color:#a855f7">' + peakViewers + '</p></div>';
+                dayHtml += '<div><span class="muted" style="font-size:12px">📊 Среднее</span><p style="font-weight:700">' + avgViewers + '</p></div>';
+                dayHtml += '<div><span class="muted" style="font-size:12px">🎮 Игры</span><p style="font-weight:700;font-size:13px">' + (games.size ? [...games].join(', ') : '—') + '</p></div>';
+                if (vods.length > 0) dayHtml += '<div><span class="muted" style="font-size:12px">🎬 VOD</span><p style="font-weight:700">' + vods.length + '</p></div>';
+                dayHtml += '</div>';
                 dayHtml += '<p style="font-size:13px;font-weight:600;margin-bottom:8px">📊 Зрители (15-мин интервалы)</p>';
-                dayHtml += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
-                const maxViewers = Math.max(1, ...chunkTimestamps.map(t => chunkData[t].viewers || 0));
+                dayHtml += '<div style="display:flex;gap:2px;align-items:flex-end;height:80px">';
+                const barH = 70;
                 for (const ts of chunkTimestamps) {
                     const ch = chunkData[ts];
-                    const h = Math.floor(ch.viewers / maxViewers * 60);
-                    dayHtml += '<div style="display:flex;flex-direction:column;align-items:center;gap:2px">';
-                    dayHtml += '<div style="width:12px;height:' + Math.max(4, h) + 'px;border-radius:3px;background:' + (ch.viewers > maxViewers * 0.7 ? '#a855f7' : ch.viewers > maxViewers * 0.3 ? '#7c3aed' : '#4ade80') + '"></div>';
-                    dayHtml += '<span style="font-size:8px;color:var(--muted)">' + new Date(Number(ts)).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
+                    const h = Math.max(4, Math.round(ch.viewers / peakViewers * barH));
+                    dayHtml += '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1">';
+                    dayHtml += '<div title="' + ch.viewers + ' зр." style="width:100%;height:' + h + 'px;border-radius:3px 3px 0 0;background:' + (ch.viewers > peakViewers * 0.7 ? '#a855f7' : ch.viewers > peakViewers * 0.3 ? '#7c3aed' : '#4ade80') + ';min-width:8px;transition:height .2s"></div>';
                     dayHtml += '</div>';
                 }
-                dayHtml += '</div></div>';
+                dayHtml += '</div>';
+                dayHtml += '<div style="display:flex;justify-content:space-between;margin-top:4px">';
+                if (chunkTimestamps.length > 0) {
+                    dayHtml += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
+                    dayHtml += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[chunkTimestamps.length - 1])).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
+                }
+                dayHtml += '</div>';
+                dayHtml += '</div>';
+            } else if (vods.length === 0) {
+                detailDiv.innerHTML = '<p class="muted" style="padding:12px;text-align:center">Нет данных стримов за этот день</p>';
+                return;
             }
 
             if (vods.length > 0) {
+                dayHtml += '<p style="font-size:13px;font-weight:600;margin-bottom:8px">🎬 Записи стримов</p>';
                 for (const vod of vods) {
                     const dur = vod.duration || '';
                     const durDisplay = dur.replace(/^PT/, '').replace(/H/, 'ч ').replace(/M/, 'м ').replace(/S/, 'с');
