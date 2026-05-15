@@ -535,7 +535,6 @@
                 }
             } catch (e) { console.warn('Failed to load viewer history:', e); }
             this._poll();
-            this._interval = setInterval(() => this._poll(), 15000);
         },
 
         stop() {
@@ -709,6 +708,22 @@
                         updates['stream-cache/' + channelLogin + '/updatedAt'] = Date.now();
                     }
                     await db.ref().update(updates);
+
+                    // Save 15-min viewer snapshot
+                    const now = Date.now();
+                    if (!this._lastChunkTime || now - this._lastChunkTime > 900000) {
+                        this._lastChunkTime = now;
+                        const d = new Date();
+                        const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                        const viewerCount = Object.keys(this.viewers).length;
+                        try {
+                            await db.ref('stream-chunks/' + channelLogin + '/' + dateStr + '/' + now).set({
+                                viewers: viewerCount,
+                                game: currentGame || 'unknown',
+                                updatedAt: now
+                            });
+                        } catch (e) { console.warn('Chunk save error:', e); }
+                    }
                 } catch (e) {
                     console.warn('Firebase viewer save error:', e);
                 }
@@ -874,6 +889,18 @@
             </div>
 
             <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+                <p class="muted" style="margin-bottom:12px">🔐 Localhost-логин (Ctrl+I+9)</p>
+                <div style="display:grid;gap:12px">
+                    <input type="text" id="localhostPassInput" placeholder="Пароль для входа через Ctrl+I+9" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+                    <div style="display:flex;gap:10px">
+                        <button class="btn" onclick="saveLocalhostPass()">💾 Сохранить пароль</button>
+                        <button class="btn" onclick="loadLocalhostPass()">🔄 Загрузить</button>
+                    </div>
+                    <div id="localhostPassStatus" class="muted" style="font-size:13px"></div>
+                </div>
+            </div>
+
+            <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
                 <p class="muted" style="margin-bottom:12px">Все пользователи в базе:</p>
                 <div id="userList"></div>
             </div>
@@ -987,6 +1014,32 @@
             status.innerHTML = '✅ Токен валидный. Бот: <b>' + (user ? user.login + ' (' + user.display_name + ')' : 'неизвестный пользователь') + '</b>';
         } catch (e) {
             status.innerHTML = '❌ Ошибка соединения: ' + e.message;
+        }
+    }
+
+    async function saveLocalhostPass() {
+        const input = document.getElementById('localhostPassInput');
+        const status = document.getElementById('localhostPassStatus');
+        const pass = input?.value.trim();
+        if (!pass) { status.innerHTML = '❌ Введи пароль'; return; }
+        try {
+            await db.ref('config/localhost-password').set(pass);
+            status.innerHTML = '✅ Пароль сохранен';
+        } catch (e) {
+            status.innerHTML = '❌ Ошибка: ' + e.message;
+        }
+    }
+
+    async function loadLocalhostPass() {
+        const input = document.getElementById('localhostPassInput');
+        const status = document.getElementById('localhostPassStatus');
+        try {
+            const snap = await db.ref('config/localhost-password').once('value');
+            const pass = snap.val() || '';
+            if (input) input.value = pass;
+            status.innerHTML = pass ? '🔄 Пароль загружен' : '🟡 Пароль не установлен';
+        } catch (e) {
+            status.innerHTML = '❌ Ошибка: ' + e.message;
         }
     }
 
@@ -1467,6 +1520,10 @@
                         ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                     </div>
                 </div>
+                <div style="display:flex;gap:8px;padding:0 0 12px">
+                    <button class="btn" onclick="renderViewerAnalysis('${name}', '${user?.id || ''}')">📊 Анализ зрителей</button>
+                    <button class="btn" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
+                </div>
                 <div class="card">
                     <h2>Текущий стрим</h2>
                     <p class="muted" style="margin:8px 0">${title}</p>
@@ -1523,6 +1580,7 @@
                     ${quality.flags.length ? `<div style="padding:0 30px"><div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04)">${quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('')}</div></div>` : ''}
                 </div>`}
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
+                <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -1962,6 +2020,10 @@
                         ${metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'}))}
                     </div>
                 </div>
+                <div style="display:flex;gap:8px;padding:0 0 12px">
+                    <button class="btn" onclick="renderViewerAnalysis('${user.login}', '${user.id}')">📊 Анализ зрителей</button>
+                    <button class="btn" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
+                </div>
                 <div class="card">
                     <h2>Текущий стрим</h2>
                     <p class="muted" style="margin:8px 0">${title}</p>
@@ -2021,6 +2083,7 @@
                     ${quality.flags.length ? `<div style="padding:0 30px"><div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04)">${quality.flags.map(f => '<div style="font-size:13px;line-height:1.7;color:var(--muted)">' + f + '</div>').join('')}</div></div>` : ''}
                 </div>`}
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
+                <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -2254,6 +2317,317 @@
     }
 
     setTimeout(startAutoRefresh, 5000);
+
+    // ─── Ctrl+I+9 Localhost Login ─────────────────────────────────
+    const LOCALHOST_PASSWORD_KEY = 'localhostPass';
+    const LOCALHOST_USER_KEY = 'localhostUser';
+
+    async function getLocalhostPass() {
+        try {
+            const snap = await db.ref('config/localhost-password').once('value');
+            return snap.val() || '';
+        } catch { return ''; }
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'I') {
+            // Store that I was pressed, wait for 9
+            window._ctrlIPending = true;
+            setTimeout(() => window._ctrlIPending = false, 1000);
+        }
+        if (window._ctrlIPending && e.key === '9') {
+            window._ctrlIPending = false;
+            e.preventDefault();
+            showLocalhostLogin();
+        }
+    });
+
+    function showLocalhostLogin() {
+        const existing = document.getElementById('localhostModal');
+        if (existing) existing.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'localhostModal';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center';
+        modal.innerHTML = `
+        <div style="background:#1a1a2e;border:1px solid rgba(168,85,247,.3);border-radius:24px;padding:32px;width:360px;max-width:90vw">
+            <h2 style="margin-bottom:8px">🔐 Localhost Login</h2>
+            <p class="muted" style="font-size:13px;margin-bottom:20px">Для тестирования без Twitch OAuth</p>
+            <input type="text" id="llLogin" placeholder="Twitch логин"
+                style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:rgba(0,0,0,.3);color:white;margin-bottom:12px">
+            <input type="password" id="llPass" placeholder="Пароль (из админки)"
+                style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:rgba(0,0,0,.3);color:white;margin-bottom:20px">
+            <div style="display:flex;gap:10px">
+                <button class="btn primary" onclick="doLocalhostLogin()" style="flex:1">Войти</button>
+                <button class="btn" onclick="this.closest('#localhostModal').remove()" style="flex:1">Отмена</button>
+            </div>
+            <p id="llError" class="muted" style="font-size:12px;margin-top:12px;text-align:center"></p>
+        </div>`;
+        document.body.appendChild(modal);
+        setTimeout(() => document.getElementById('llLogin')?.focus(), 100);
+    }
+
+    async function doLocalhostLogin() {
+        const login = document.getElementById('llLogin').value.trim().toLowerCase();
+        const pass = document.getElementById('llPass').value.trim();
+        const err = document.getElementById('llError');
+        if (!login || !pass) { err.textContent = 'Заполни оба поля'; return; }
+
+        try {
+            const snap = await db.ref('config/localhost-password').once('value');
+            const correctPass = snap.val() || '';
+            if (pass !== correctPass) { err.textContent = '❌ Неверный пароль'; return; }
+
+            const userSnap = await db.ref('twitch-users/' + login).once('value');
+            const userData = userSnap.val();
+            if (!userData) { err.textContent = '❌ Пользователь не найден в базе'; return; }
+
+            // Fake Twitch user object from DB data
+            currentTwitchUser = {
+                login: login,
+                display_name: userData.displayName || login,
+                profile_image_url: userData.profileImageUrl || '',
+                description: userData.description || '',
+                id: userData.twitchId || login
+            };
+            currentUserRoles = userData.roles || {};
+            if (userData.role && !currentUserRoles[userData.role]) {
+                currentUserRoles[userData.role] = true;
+            }
+
+            localStorage.setItem('twitchUserLogin', login);
+            localStorage.setItem('twitchUserRoles', JSON.stringify(currentUserRoles));
+            localStorage.setItem('twitchUserDisplayName', currentTwitchUser.display_name);
+            localStorage.setItem('twitchUserAvatar', currentTwitchUser.profile_image_url || '');
+            localStorage.setItem('twitchUserId', currentTwitchUser.id);
+
+            document.getElementById('localhostModal').remove();
+
+            const app = document.getElementById('app');
+            app.classList.add('authorized');
+            document.getElementById('authBlock').style.display = 'none';
+            renderSidebarUser();
+            await renderHome();
+            renderAdminButton();
+            updateSquadNavButton();
+        } catch (e) {
+            err.textContent = '❌ Ошибка: ' + e.message;
+        }
+    }
+
+    function renderViewerAnalysis(login, userId) {
+        const el = document.getElementById('viewerAnalysis');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        viewerTracker.renderTable();
+    }
+
+    async function renderStreamCalendar(login, userId) {
+        const containerId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Загрузка календаря стримов...</p>';
+
+        try {
+            const token = localStorage.getItem('twitchAccessToken');
+            const botToken = await getBotToken();
+            const hdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+
+            const [archiveRes, highlightRes] = await Promise.all([
+                fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=archive&period=all', { headers: hdrs }),
+                fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=highlight&period=all', { headers: hdrs })
+            ]);
+
+            let allVods = [];
+            if (archiveRes.ok) { const d = await archiveRes.json(); allVods = allVods.concat(d.data || []); }
+            if (highlightRes.ok) { const d = await highlightRes.json(); allVods = allVods.concat(d.data || []); }
+
+            allVods.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            if (allVods.length === 0) {
+                container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Нет стримов за последнее время</p>';
+                return;
+            }
+
+            // Group VODs by month
+            const vodsByMonth = {};
+            for (const vod of allVods) {
+                const d = new Date(vod.created_at);
+                const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+                if (!vodsByMonth[key]) vodsByMonth[key] = [];
+                vodsByMonth[key].push(vod);
+            }
+
+            const months = Object.keys(vodsByMonth).sort().reverse().slice(0, 6);
+            let html = '<div class="page-card" style="margin-top:24px">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px">';
+            html += '<div><h2 style="font-size:24px">📅 Календарь стримов</h2>';
+            html += '<p class="muted">Всего VOD: ' + allVods.length + '</p></div>';
+            html += '<button class="btn" onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>';
+            html += '</div>';
+            html += '<div style="display:grid;gap:24px">';
+
+            const now = new Date();
+            for (const monthKey of months) {
+                const [year, month] = monthKey.split('-').map(Number);
+                const vods = vodsByMonth[monthKey];
+                const daysWithVods = new Set();
+                const vodMap = {};
+                for (const vod of vods) {
+                    const day = new Date(vod.created_at).getDate();
+                    daysWithVods.add(day);
+                    if (!vodMap[day]) vodMap[day] = [];
+                    vodMap[day].push(vod);
+                }
+
+                const firstDay = new Date(year, month - 1, 1).getDay();
+                const daysInMonth = new Date(year, month, 0).getDate();
+                const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+                html += '<div style="background:rgba(255,255,255,.04);border-radius:20px;padding:20px;border:1px solid var(--border)">';
+                html += '<h3 style="margin-bottom:16px">' + monthNames[month - 1] + ' ' + year + '</h3>';
+                html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center">';
+                html += ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => '<div style="font-size:11px;color:var(--muted);padding:4px 0">' + d + '</div>').join('');
+
+                const startPad = firstDay === 0 ? 6 : firstDay - 1;
+                for (let i = 0; i < startPad; i++) {
+                    html += '<div></div>';
+                }
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const hasVod = daysWithVods.has(day);
+                    const isToday = now.getFullYear() === year && now.getMonth() === month - 1 && now.getDate() === day;
+                    html += '<div style="position:relative;padding:6px 0;border-radius:10px;cursor:' + (hasVod ? 'pointer' : 'default') + ';background:' + (isToday ? 'rgba(168,85,247,.15)' : 'transparent') + ';border:1px solid ' + (isToday ? 'rgba(168,85,247,.3)' : 'transparent') + '"';
+                    if (hasVod) {
+                        html += ' onclick="toggleStreamDay(this, \'' + login + '\', ' + year + ', ' + month + ', ' + day + ')"';
+                    }
+                    html += '>';
+                    html += '<span style="font-size:13px;font-weight:' + (hasVod ? '700' : '400') + ';color:' + (hasVod ? 'white' : 'var(--muted)') + '">' + day + '</span>';
+                    if (hasVod) {
+                        html += '<div style="width:6px;height:6px;border-radius:50%;background:#a855f7;margin:2px auto 0"></div>';
+                    }
+                    html += '</div>';
+                }
+                html += '</div>'; // grid
+
+                // Pre-build vod details for this month
+                html += '<div id="streamDayDetail_' + login + '_' + monthKey + '" style="margin-top:16px"></div>';
+                html += '</div>';
+            }
+
+            html += '</div></div>';
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка загрузки: ' + e.message + '</p>';
+        }
+    }
+
+    window.toggleStreamDay = async function(el, login, year, month, day) {
+        const containerId = 'streamDayDetail_' + login + '_' + String(year) + '-' + String(month).padStart(2, '0');
+        const detailDiv = document.getElementById(containerId);
+        if (!detailDiv) return;
+
+        const isOpen = detailDiv.dataset.open === 'yes';
+        if (isOpen) {
+            detailDiv.innerHTML = '';
+            detailDiv.dataset.open = 'no';
+            return;
+        }
+
+        // Clear previous
+        detailDiv.innerHTML = '<p class="muted" style="padding:12px;text-align:center">Загрузка...</p>';
+        detailDiv.dataset.open = 'yes';
+
+        try {
+            const token = localStorage.getItem('twitchAccessToken');
+            const botToken = await getBotToken();
+            const hdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+
+            // Get user id from login
+            const userRes = await fetch('https://api.twitch.tv/helix/users?login=' + login, {
+                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+            });
+            const userData = await userRes.json();
+            const userId = userData.data && userData.data[0] ? userData.data[0].id : '';
+
+            // Fetch VODs and filter for this specific day
+            const startOfDay = new Date(year, month - 1, day).getTime();
+            const endOfDay = startOfDay + 86400000;
+
+            const [archiveRes, highlightRes] = await Promise.all([
+                fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=archive&period=all', { headers: hdrs }),
+                fetch('https://api.twitch.tv/helix/videos?user_id=' + userId + '&first=100&type=highlight&period=all', { headers: hdrs })
+            ]);
+
+            let allVods = [];
+            if (archiveRes.ok) { const d = await archiveRes.json(); allVods = allVods.concat(d.data || []); }
+            if (highlightRes.ok) { const d = await highlightRes.json(); allVods = allVods.concat(d.data || []); }
+
+            // Filter VODs for this specific day
+            const vods = allVods.filter(v => {
+                const vodTime = new Date(v.created_at).getTime();
+                return vodTime >= startOfDay && vodTime < endOfDay;
+            });
+
+            // Try loading stream chunks from Firebase
+            let chunkData = {};
+            try {
+                const chunkSnap = await db.ref('stream-chunks/' + login + '/' + String(year) + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0')).once('value');
+                chunkData = chunkSnap.val() || {};
+            } catch(e) {}
+
+            if (vods.length === 0 && Object.keys(chunkData).length === 0) {
+                detailDiv.innerHTML = '<p class="muted" style="padding:12px;text-align:center">Нет VOD за этот день</p>';
+                return;
+            }
+
+            let dayHtml = '<div style="padding:16px 0">';
+            dayHtml += '<h4 style="margin-bottom:12px">🎬 Стримы ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h4>';
+
+            // Chunks (15-min viewer intervals)
+            const chunkTimestamps = Object.keys(chunkData).sort();
+            if (chunkTimestamps.length > 0) {
+                dayHtml += '<div style="margin-bottom:16px;padding:12px;border-radius:12px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.15)">';
+                dayHtml += '<p style="font-size:13px;font-weight:600;margin-bottom:8px">📊 Зрители (15-мин интервалы)</p>';
+                dayHtml += '<div style="display:flex;gap:4px;flex-wrap:wrap">';
+                const maxViewers = Math.max(1, ...chunkTimestamps.map(t => chunkData[t].viewers || 0));
+                for (const ts of chunkTimestamps) {
+                    const ch = chunkData[ts];
+                    const h = Math.floor(ch.viewers / maxViewers * 60);
+                    dayHtml += '<div style="display:flex;flex-direction:column;align-items:center;gap:2px">';
+                    dayHtml += '<div style="width:12px;height:' + Math.max(4, h) + 'px;border-radius:3px;background:' + (ch.viewers > maxViewers * 0.7 ? '#a855f7' : ch.viewers > maxViewers * 0.3 ? '#7c3aed' : '#4ade80') + '"></div>';
+                    dayHtml += '<span style="font-size:8px;color:var(--muted)">' + new Date(Number(ts)).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
+                    dayHtml += '</div>';
+                }
+                dayHtml += '</div></div>';
+            }
+
+            if (vods.length > 0) {
+                for (const vod of vods) {
+                    const dur = vod.duration || '';
+                    const durDisplay = dur.replace(/^PT/, '').replace(/H/, 'ч ').replace(/M/, 'м ').replace(/S/, 'с');
+                    dayHtml += '<div style="display:flex;gap:12px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);margin-bottom:8px;align-items:center">';
+                    if (vod.thumbnail_url && vod.thumbnail_url.indexOf('%') === -1) {
+                        dayHtml += '<img src="' + vod.thumbnail_url + '" style="width:80px;height:45px;border-radius:8px;object-fit:cover">';
+                    } else if (vod.thumbnail_url) {
+                        dayHtml += '<img src="' + vod.thumbnail_url.replace('{width}', '160').replace('{height}', '90') + '" style="width:80px;height:45px;border-radius:8px;object-fit:cover">';
+                    }
+                    dayHtml += '<div style="flex:1;min-width:0">';
+                    dayHtml += '<a href="' + (vod.url || '#') + '" target="_blank" style="color:white;font-weight:600;font-size:14px;text-decoration:none">' + (vod.title || '') + '</a>';
+                    dayHtml += '<div style="display:flex;gap:16px;margin-top:4px">';
+                    dayHtml += '<span class="muted" style="font-size:12px">⏱ ' + durDisplay + '</span>';
+                    dayHtml += '<span class="muted" style="font-size:12px">👁 ' + (vod.view_count || 0) + '</span>';
+                    if (vod.game) dayHtml += '<span class="muted" style="font-size:12px">🎮 ' + vod.game + '</span>';
+                    dayHtml += '</div></div></div>';
+                }
+            }
+
+            dayHtml += '</div>';
+            detailDiv.innerHTML = dayHtml;
+        } catch (e) {
+            detailDiv.innerHTML = '<p class="muted" style="padding:12px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
+        }
+    };
 </script>
 </body>
 </html>
