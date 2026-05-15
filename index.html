@@ -1634,38 +1634,6 @@
         const hpInfo = hpInterpretation(hpScore);
         const hpDisplay = hpScore !== null ? hpScore + ' / 100' : '—';
 
-        // Monthly average viewers with trend
-        let avgMonth = '—', avgTrend = '';
-        try {
-            const now = new Date();
-            const thisM = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
-            const prevM = now.getMonth() === 0 ? (now.getFullYear() - 1) + '-12' : String(now.getFullYear()) + '-' + String(now.getMonth()).padStart(2, '0');
-            const [thisSnap, prevSnap] = await Promise.all([
-                db.ref('stream-chunks/' + name.toLowerCase() + '/' + thisM).once('value'),
-                db.ref('stream-chunks/' + name.toLowerCase() + '/' + prevM).once('value')
-            ]);
-            const calcAvg = (snap) => {
-                const val = snap.val() || {};
-                let sum = 0, count = 0;
-                for (const dateStr of Object.keys(val)) {
-                    for (const ts of Object.keys(val[dateStr])) {
-                        sum += val[dateStr][ts].viewers || 0;
-                        count++;
-                    }
-                }
-                return count ? Math.round(sum / count) : 0;
-            };
-            const thisAvg = calcAvg(thisSnap);
-            const prevAvg = calcAvg(prevSnap);
-            if (thisAvg > 0) {
-                avgMonth = thisAvg;
-                if (prevAvg > 0) {
-                    const diff = ((thisAvg - prevAvg) / prevAvg * 100).toFixed(0);
-                    avgTrend = thisAvg >= prevAvg ? `+${diff}%` : `${diff}%`;
-                }
-            }
-        } catch (e) {}
-
         const viewerSectionId = 'viewerAnalysis_' + name.replace(/[^a-z0-9]/gi, '');
         document.getElementById('creatorPage').innerHTML = `
         <div class="dash-grid">
@@ -1680,7 +1648,6 @@
                         ${metric('Фоловеры', followers)}
                         ${metric('Роль', roleStr)}
                         ${metric('Статус', isLive ? 'Online' : 'Offline')}
-                        ${metric('Средний онлайн', avgMonth, avgTrend ? (avgTrend.startsWith('+') ? '📈 ' + avgTrend : '📉 ' + avgTrend) : '')}
                         ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                     </div>
                 </div>
@@ -1751,10 +1718,12 @@
                     <button class="tab-btn active" id="tabViewer_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderViewerAnalysis('${name}', '${user?.id || ''}')">📊 Анализ зрителей</button>
                     <button class="tab-btn" id="tabCalendar_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
                     <button class="tab-btn" id="tabTracker_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${name}', '${user?.id || ''}')">📊 Общие данные</button>
+                    <button class="tab-btn" id="tabAvg_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderAvgOnline('${name}', '${user?.id || ''}')">📈 Средний онлайн</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
                 <div id="trackerContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+                <div id="avgOnlineContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -2175,38 +2144,6 @@
         const hpInfo = hpInterpretation(hpScore);
         const hpDisplay = hpScore !== null ? hpScore + ' / 100' : '—';
 
-        // Monthly average viewers with trend
-        let avgMonth = '—', avgTrend = '';
-        try {
-            const now = new Date();
-            const thisM = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
-            const prevM = now.getMonth() === 0 ? (now.getFullYear() - 1) + '-12' : String(now.getFullYear()) + '-' + String(now.getMonth()).padStart(2, '0');
-            const [thisSnap, prevSnap] = await Promise.all([
-                db.ref('stream-chunks/' + user.login.toLowerCase() + '/' + thisM).once('value'),
-                db.ref('stream-chunks/' + user.login.toLowerCase() + '/' + prevM).once('value')
-            ]);
-            const calcAvg = (snap) => {
-                const val = snap.val() || {};
-                let sum = 0, count = 0;
-                for (const dateStr of Object.keys(val)) {
-                    for (const ts of Object.keys(val[dateStr])) {
-                        sum += val[dateStr][ts].viewers || 0;
-                        count++;
-                    }
-                }
-                return count ? Math.round(sum / count) : 0;
-            };
-            const thisAvg = calcAvg(thisSnap);
-            const prevAvg = calcAvg(prevSnap);
-            if (thisAvg > 0) {
-                avgMonth = thisAvg;
-                if (prevAvg > 0) {
-                    const diff = ((thisAvg - prevAvg) / prevAvg * 100).toFixed(0);
-                    avgTrend = thisAvg >= prevAvg ? `+${diff}%` : `${diff}%`;
-                }
-            }
-        } catch (e) {}
-
         document.getElementById('creatorPage').innerHTML = `
         <div class="dash-grid">
             <div class="left-stack">
@@ -2223,7 +2160,6 @@
                         ${metric('Фоловеры', followers)}
                         ${metric('Роль', rolesDisplay())}
                         ${metric('Статус', isLive)}
-                        ${metric('Средний онлайн', avgMonth, avgTrend ? (avgTrend.startsWith('+') ? '📈 ' + avgTrend : '📉 ' + avgTrend) : '')}
                         ${metric('Формула HP', hpDisplay, hpInfo.level + hpBreakdown(memberData))}
                         ${metric('Создан', new Date(user.created_at).toLocaleDateString('ru-RU', {month:'short', year:'numeric'}))}
                     </div>
@@ -2298,10 +2234,12 @@
                     <button class="tab-btn active" id="tabViewer_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderViewerAnalysis('${user.login}', '${user.id}')">📊 Анализ зрителей</button>
                     <button class="tab-btn" id="tabCalendar_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
                     <button class="tab-btn" id="tabTracker_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${user.login}', '${user.id}')">📊 Общие данные</button>
+                    <button class="tab-btn" id="tabAvg_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderAvgOnline('${user.login}', '${user.id}')">📈 Средний онлайн</button>
                 </div>
                 <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
                 <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
                 <div id="trackerContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+                <div id="avgOnlineContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
             </main>
         </div>`;
         show('creatorPage');
@@ -2632,9 +2570,11 @@
         const vt = document.getElementById('tabViewer_' + safe);
         const ct = document.getElementById('tabCalendar_' + safe);
         const tt = document.getElementById('tabTracker_' + safe);
+        const at = document.getElementById('tabAvg_' + safe);
         if (vt) vt.className = 'tab-btn' + (active === 'viewer' ? ' active' : '');
         if (ct) ct.className = 'tab-btn' + (active === 'calendar' ? ' active' : '');
         if (tt) tt.className = 'tab-btn' + (active === 'tracker' ? ' active' : '');
+        if (at) at.className = 'tab-btn' + (active === 'avg' ? ' active' : '');
     }
 
     function renderTrackerStats(login, userId) {
@@ -2791,6 +2731,137 @@
         if (ve) { ve.style.display = 'block'; ve.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
         viewerTracker.start(userId, login);
         setTimeout(() => viewerTracker.renderTable(), 2000);
+    }
+
+    async function renderAvgOnline(login, userId) {
+        setActiveTab(login, 'avg');
+        viewerTracker.stop();
+        const safe = login.replace(/[^a-z0-9]/gi, '');
+        // Hide other containers
+        const ve = document.getElementById('viewerAnalysis');
+        if (ve) ve.style.display = 'none';
+        const cal = document.getElementById('streamCalendarContainer_' + safe);
+        if (cal) cal.style.display = 'none';
+        const tr = document.getElementById('trackerContainer_' + safe);
+        if (tr) tr.style.display = 'none';
+        const container = document.getElementById('avgOnlineContainer_' + safe);
+        if (!container) return;
+        container.style.display = 'block';
+        container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📈 Загрузка...</p>';
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        try {
+            // Fetch last 2 months of stream-chunks
+            const now = new Date();
+            const months = [];
+            for (let i = 0; i < 2; i++) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                months.push(String(d.getFullYear()) + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+            }
+            const snaps = await Promise.all(months.map(m => db.ref('stream-chunks/' + login + '/' + m).once('value')));
+            const dayData = {};
+            let totalViewers = 0, totalSamples = 0;
+            for (const snap of snaps) {
+                const val = snap.val() || {};
+                for (const dateStr of Object.keys(val)) {
+                    let daySum = 0, dayCount = 0, dayPeak = 0;
+                    for (const ts of Object.keys(val[dateStr])) {
+                        const c = val[dateStr][ts];
+                        daySum += c.viewers || 0;
+                        dayCount++;
+                        totalViewers += c.viewers || 0;
+                        totalSamples++;
+                        if ((c.viewers || 0) > dayPeak) dayPeak = c.viewers || 0;
+                    }
+                    if (dayCount) {
+                        dayData[dateStr] = { avg: Math.round(daySum / dayCount), peak: dayPeak, samples: dayCount };
+                    }
+                }
+            }
+            const overallAvg = totalSamples ? Math.round(totalViewers / totalSamples) : 0;
+
+            // Previous month avg for trend
+            const prevMonth = months[1];
+            let prevSum = 0, prevCount = 0;
+            const prevVal = snaps[1]?.val() || {};
+            for (const dateStr of Object.keys(prevVal)) {
+                for (const ts of Object.keys(prevVal[dateStr])) {
+                    prevSum += prevVal[dateStr][ts].viewers || 0;
+                    prevCount++;
+                }
+            }
+            const prevAvg = prevCount ? Math.round(prevSum / prevCount) : 0;
+            let trendHtml = '';
+            if (prevAvg > 0 && overallAvg > 0) {
+                const diff = ((overallAvg - prevAvg) / prevAvg * 100).toFixed(0);
+                const isUp = overallAvg >= prevAvg;
+                trendHtml = `<span style="color:${isUp ? '#4ade80' : '#ef4444'};font-size:14px;font-weight:600">${isUp ? '📈 +' : '📉 '}${diff}%</span>`;
+            }
+
+            // Sort days
+            const sortedDays = Object.keys(dayData).sort();
+            const maxAvg = Math.max(1, ...sortedDays.map(d => dayData[d].avg));
+
+            let html = '<div class="page-card" style="margin-top:24px">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
+            html += '<div><h2 style="font-size:24px">📈 Средний онлайн</h2><p class="muted">@' + login + '</p></div>';
+            html += '<button class="btn" onclick="renderAvgOnline(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄</button>';
+            html += '</div>';
+
+            // Summary card
+            html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+            html += '<div class="metric"><p>📅 Дней со стримами</p><strong style="font-size:22px">' + sortedDays.length + '</strong></div>';
+            html += '<div class="metric"><p>📈 Средний онлайн</p><strong style="font-size:22px;color:#a855f7">' + overallAvg + ' ' + trendHtml + '</strong></div>';
+            html += '<div class="metric"><p>🔥 Макс пик</p><strong style="font-size:22px;color:white">' + Math.max(1, ...sortedDays.map(d => dayData[d].peak)) + '</strong></div>';
+            html += '</div>';
+
+            // Chart
+            if (sortedDays.length) {
+                html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 По дням</p>';
+                html += '<div style="display:flex;gap:3px;align-items:flex-end;height:160px;overflow-x:auto;padding-bottom:8px">';
+                const barH = 145;
+                for (const dateStr of sortedDays) {
+                    const d = dayData[dateStr];
+                    const h = Math.max(3, Math.round(d.avg / maxAvg * barH));
+                    const label = dateStr.slice(5);
+                    const color = d.avg > overallAvg * 1.15 ? '#4ade80' : d.avg > overallAvg * 0.85 ? '#a855f7' : '#7c3aed';
+                    html += '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;position:relative"';
+                    html += ' onmouseover="this.querySelector(\'.bar-tip\').style.display=\'block\';this.querySelector(\'.bar\').style.opacity=\'.8\'"';
+                    html += ' onmouseout="this.querySelector(\'.bar-tip\').style.display=\'none\';this.querySelector(\'.bar\').style.opacity=\'1\'"';
+                    html += '>';
+                    html += '<div class="bar-tip" style="display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid rgba(168,85,247,.3);color:white;padding:4px 8px;border-radius:8px;font-size:10px;white-space:nowrap;z-index:10;margin-bottom:6px;pointer-events:none">' + label + ' · ср. ' + d.avg + ' · пик ' + d.peak + '</div>';
+                    html += '<div class="bar" style="width:28px;height:' + h + 'px;border-radius:4px 4px 0 0;background:' + color + ';transition:opacity .2s;cursor:pointer"></div>';
+                    html += '<span style="font-size:8px;color:var(--muted);writing-mode:vertical-lr;transform:rotate(180deg);margin-top:2px;height:20px;overflow:hidden">' + label + '</span>';
+                    html += '</div>';
+                }
+                html += '</div>';
+                html += '<div style="display:flex;justify-content:space-between;margin-top:4px">';
+                html += '<span style="font-size:9px;color:var(--muted)">' + (sortedDays[0] || '') + '</span>';
+                html += '<span style="font-size:9px;color:var(--muted)">' + (sortedDays[sortedDays.length - 1] || '') + '</span>';
+                html += '</div>';
+                html += '</div>';
+
+                // Day list
+                html += '<div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">';
+                for (const dateStr of sortedDays) {
+                    const d = dayData[dateStr];
+                    html += '<div style="padding:10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--border);text-align:center">';
+                    html += '<div style="font-size:12px;font-weight:600">' + dateStr.slice(5) + '</div>';
+                    html += '<div style="font-size:18px;color:#a855f7;margin-top:2px">' + d.avg + '</div>';
+                    html += '<div class="muted" style="font-size:10px">пик ' + d.peak + '</div>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            } else {
+                html += '<div style="padding:40px 20px;text-align:center"><p class="muted">Нет данных за последние 2 месяца</p></div>';
+            }
+
+            html += '</div>';
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
+        }
     }
 
     async function fetchAllVods(userId, hdrs) {
