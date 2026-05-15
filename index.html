@@ -2709,14 +2709,27 @@
 
             // Merge VOD days + chunk days for this month
             const daysWithActivity = new Set();
+            const dayStats = {};
             for (const vod of allVods) {
                 const d = new Date(vod.created_at);
                 if (d.getFullYear() === year && d.getMonth() + 1 === month) {
                     daysWithActivity.add(d.getDate());
+                    const dd = d.getDate();
+                    if (!dayStats[dd]) dayStats[dd] = { streams: 0, totalMins: 0, sumViewers: 0, maxViewers: 0, hasVod: false };
+                    dayStats[dd].hasVod = true;
                 }
             }
             if (chunkDaysByMonth[monthKey]) {
-                chunkDaysByMonth[monthKey].forEach(d => daysWithActivity.add(d));
+                chunkDaysByMonth[monthKey].forEach(d => {
+                    daysWithActivity.add(d);
+                    if (!dayStats[d]) dayStats[d] = { streams: 0, totalMins: 0, sumViewers: 0, maxViewers: 0, hasVod: false };
+                });
+            }
+            // Fill from stream-chunks for the month
+            for (const dateStr of Object.keys(chunkDaysByMonth)) {
+                if (dateStr !== monthKey) continue;
+                const day = parseInt(dateStr.slice(8, 10), 10);
+                if (!dayStats[day]) dayStats[day] = { streams: 0, totalMins: 0, sumViewers: 0, maxViewers: 0, hasVod: false };
             }
 
             const firstDay = new Date(year, month - 1, 1).getDay();
@@ -2727,6 +2740,57 @@
             const prevM = month === 1 ? (year - 1) + '-12' : year + '-' + String(month - 1).padStart(2, '0');
             const nextM = month === 12 ? (year + 1) + '-01' : year + '-' + String(month + 1).padStart(2, '0');
             const hasPrev = year > 2020 || (year === 2020 && month > 1);
+
+            // Compute mini-calendar data from stream-chunks
+            let mcData = {};
+            try {
+                const mcSnap = await db.ref('stream-chunks/' + login + '/' + monthKey).once('value');
+                mcData = mcSnap.val() || {};
+            } catch (e) {}
+            const mcDays = {};
+            for (const dateStr of Object.keys(mcData)) {
+                const dayNum = parseInt(dateStr.slice(8, 10), 10);
+                const chunks = mcData[dateStr];
+                for (const ts of Object.keys(chunks)) {
+                    const c = chunks[ts];
+                    if (!mcDays[dayNum]) mcDays[dayNum] = { totalMins: 0, sumViewers: 0, maxViewers: 0, count: 0 };
+                    mcDays[dayNum].totalMins += c.durationMins || 15;
+                    mcDays[dayNum].sumViewers += c.viewers || 0;
+                    mcDays[dayNum].count++;
+                    if ((c.viewers || 0) > mcDays[dayNum].maxViewers) mcDays[dayNum].maxViewers = c.viewers || 0;
+                }
+            }
+
+            // Find max values for color scaling
+            let maxStreamMins = 0, maxAvgViewers = 0, maxPeakViewers = 0;
+            for (const d of Object.keys(mcDays)) {
+                const sd = mcDays[d];
+                if (sd.totalMins > maxStreamMins) maxStreamMins = sd.totalMins;
+                const avg = sd.count ? Math.round(sd.sumViewers / sd.count) : 0;
+                if (avg > maxAvgViewers) maxAvgViewers = avg;
+                if (sd.maxViewers > maxPeakViewers) maxPeakViewers = sd.maxViewers;
+            }
+
+            function mcColor(val, max) {
+                if (!max || !val) return 'rgba(255,255,255,.04)';
+                const p = val / max;
+                return p > 0.7 ? 'rgba(168,85,247,.45)' : p > 0.4 ? 'rgba(168,85,247,.25)' : 'rgba(168,85,247,.12)';
+            }
+            function renderMiniGrid(label, dataKey) {
+                const maxVal = dataKey === 'totalMins' ? maxStreamMins : dataKey === 'maxViewers' ? maxPeakViewers : maxAvgViewers;
+                let g = '<div style="flex:1;min-width:200px"><p style="font-size:11px;font-weight:600;margin-bottom:6px;color:var(--muted)">' + label + '</p>';
+                g += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">';
+                const sp = firstDay === 0 ? 6 : firstDay - 1;
+                for (let i = 0; i < sp; i++) g += '<div></div>';
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const sd = mcDays[d] || {};
+                    const val = dataKey === 'totalMins' ? (sd.totalMins || 0) : dataKey === 'maxViewers' ? (sd.maxViewers || 0) : sd.count ? Math.round(sd.sumViewers / sd.count) : 0;
+                    const has = daysWithActivity.has(d);
+                    g += '<div style="aspect-ratio:1;border-radius:4px;background:' + (has ? mcColor(val, maxVal) : 'rgba(255,255,255,.02)') + ';display:flex;align-items:center;justify-content:center;font-size:8px;color:' + (has ? 'white' : 'var(--muted)') + '" title="' + d + ': ' + val + '">' + d + '</div>';
+                }
+                g += '</div></div>';
+                return g;
+            }
 
             let html = '<div class="page-card" style="margin-top:24px">';
             html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">';
@@ -2751,7 +2815,7 @@
             html += '<button onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + nextM + '\')">→</button>';
             html += '</div>';
 
-            // Month grid
+            // Main calendar grid
             html += '<div style="background:rgba(255,255,255,.04);border-radius:20px;padding:20px;border:1px solid var(--border)">';
             html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center">';
             html += ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => '<div style="font-size:11px;color:var(--muted);padding:6px 0;font-weight:600">' + d + '</div>').join('');
@@ -2773,6 +2837,15 @@
             html += '</div>';
             html += '</div>';
 
+            // Mini calendars (SullyGnome style)
+            if (Object.keys(mcDays).length) {
+                html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:16px">';
+                html += renderMiniGrid('⏱ Время в эфире (мин)', 'totalMins');
+                html += renderMiniGrid('📈 Средние зрители', 'avgViewers');
+                html += renderMiniGrid('🔥 Пик зрителей', 'maxViewers');
+                html += '</div>';
+            }
+
             // Detail section
             html += '<div id="streamDayDetail" style="margin-top:16px"></div>';
             html += '</div>';
@@ -2786,16 +2859,18 @@
         const detailDiv = document.getElementById('streamDayDetail');
         if (!detailDiv) return;
 
-        const isOpen = detailDiv.dataset.day === String(day) + '-' + String(month) + '-' + String(year);
-        if (isOpen) {
-            detailDiv.innerHTML = '';
-            detailDiv.dataset.day = '';
-            return;
-        }
+        // Page-like navigation: hide calendar container, save state, show full detail
+        const safe = login.replace(/[^a-z0-9]/gi, '');
+        const calContainer = document.getElementById('streamCalendarContainer_' + safe);
+        const pageCard = detailDiv.closest('.page-card') || calContainer?.querySelector('.page-card');
+        const calPageCard = calContainer?.querySelector('.page-card');
+
+        // Hide calendar elements
+        if (calPageCard) calPageCard.style.display = 'none';
 
         detailDiv.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка данных...</p>';
         detailDiv.dataset.day = String(day) + '-' + String(month) + '-' + String(year);
-        detailDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        detailDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         try {
             const startOfDay = new Date(year, month - 1, day).getTime();
@@ -2841,7 +2916,6 @@
                 if (avgViewers > allAvg * 1.15) { perfClass = 'above'; perfLabel = 'Выше среднего'; }
                 else if (avgViewers < allAvg * 0.85) { perfClass = 'below'; perfLabel = 'Ниже среднего'; }
 
-                // Trend: compare to the immediately previous stream
                 const sortedVods = [...cached.vods].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
                 const currentIdx = sortedVods.findIndex(v => {
                     const t = new Date(v.created_at).getTime();
@@ -2858,40 +2932,35 @@
             const perfColors = { above: '#4ade80', below: '#ef4444', neutral: '#a855f7' };
             const trendColors = { positive: '#4ade80', negative: '#ef4444', neutral: '#a855f7' };
 
-            let html = '<div style="border-radius:20px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.15);overflow:hidden">';
+            let html = '<div class="page-card" style="margin-top:0">';
 
-            // ── Sub-header: date + close + meta strip ──
-            html += '<div style="padding:16px 20px 12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid rgba(168,85,247,.12)">';
-            html += '<div><h3 style="font-size:18px">🎬 ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h3>';
+            // ── Header with back button ──
+            html += '<div style="padding:0 0 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border)">';
+            html += '<div><h2 style="font-size:22px">🎬 ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h2>';
             html += '<p class="muted" style="font-size:12px">' + login + '</p></div>';
-            html += '<button class="btn" onclick="document.getElementById(\'streamDayDetail\').innerHTML=\'\';document.getElementById(\'streamDayDetail\').dataset.day=\'\'" style="padding:6px 12px;font-size:12px">✕</button>';
+            html += '<button class="btn" onclick="closeStreamDay()" style="padding:8px 16px;font-size:13px">← Назад к календарю</button>';
             html += '</div>';
 
             if (chunkTimestamps.length > 0 || vods.length > 0) {
-                // ── Meta strip (like SullyGnome sub-header) ──
-                html += '<div style="display:flex;gap:0;flex-wrap:wrap;border-bottom:1px solid rgba(168,85,247,.08);background:rgba(255,255,255,.015)">';
+                // ── Meta strip ──
+                html += '<div style="display:flex;gap:0;flex-wrap:wrap;margin-top:16px;border-radius:12px;overflow:hidden;border:1px solid rgba(168,85,247,.1);background:rgba(255,255,255,.015)">';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Начало</p><b style="font-size:13px">' + (chunkTimestamps.length ? new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'}) : '—') + '</b></div>';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Длительность</p><b style="font-size:13px">' + (durationMin >= 60 ? Math.floor(durationMin / 60) + 'ч ' + (durationMin % 60) + 'м' : durationMin + 'м') + '</b></div>';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Время просмотра</p><b style="font-size:13px">' + (watchTimeMins >= 60 ? Math.floor(watchTimeMins / 60) + 'ч ' + (watchTimeMins % 60) + 'м' : watchTimeMins + 'м') + '</b></div>';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center"><p class="muted" style="font-size:10px;text-transform:uppercase">Новые фоловеры</p><b style="font-size:13px;color:#4ade80">+' + followersGained + '</b></div>';
                 html += '</div>';
 
-                // ── Main stats panel (like SullyGnome MiniPanel) ──
-                html += '<div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px">';
-
-                // Left: avg viewers panel
+                // ── Main stats panels ──
+                html += '<div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">';
                 html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
                 html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
                 html += '<p class="muted" style="font-size:11px;text-transform:uppercase">Средние зрители</p>';
                 html += '<span style="font-size:11px;color:' + perfColors[perfClass] + '">' + perfLabel + '</span>';
                 html += '</div>';
                 html += '<strong style="font-size:36px;color:#a855f7">' + avgViewers + '</strong>';
-                // mini bar
                 const barPct = peakViewers > 0 ? Math.min(100, Math.round(avgViewers / peakViewers * 100)) : 0;
                 html += '<div style="margin-top:10px;height:4px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:' + barPct + '%;border-radius:2px;background:linear-gradient(90deg,#a855f7,#7c3aed)"></div></div>';
                 html += '</div>';
-
-                // Right: peak viewers panel
                 html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
                 html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
                 html += '<p class="muted" style="font-size:11px;text-transform:uppercase">Пик зрителей</p>';
@@ -2900,10 +2969,9 @@
                 html += '<strong style="font-size:36px;color:white">' + peakViewers + '</strong>';
                 html += '<div style="margin-top:10px;height:4px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:100%;border-radius:2px;background:linear-gradient(90deg,#7c3aed,#a855f7)"></div></div>';
                 html += '</div>';
+                html += '</div>';
 
-                html += '</div>'; // end grid
-
-                // ── Game panels (like SullyGnome StreamGameSummaryPanel) ──
+                // ── Game panels ──
                 const gameData = {};
                 for (const ts of chunkTimestamps) {
                     const c = chunkData[ts];
@@ -2916,7 +2984,7 @@
                 }
 
                 if (Object.keys(gameData).length) {
-                    html += '<div style="padding:0 20px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">';
+                    html += '<div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">';
                     for (const [g, gd] of Object.entries(gameData)) {
                         const gAvg = Math.round(gd.sumViewers / gd.count);
                         html += '<div style="padding:14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
@@ -2932,19 +3000,23 @@
                     html += '</div>';
                 }
 
-                // ── Chart ──
+                // ── Chart with tooltips ──
                 if (chunkTimestamps.length > 0) {
-                    html += '<div style="padding:0 20px 20px">';
-                    html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
-                    html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 Зрители по 15-минуткам</p>';
-                    html += '<div style="display:flex;gap:2px;align-items:flex-end;height:120px">';
+                    html += '<div style="margin-top:16px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border);position:relative">';
+                    html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 Зрители</p>';
+                    html += '<div style="display:flex;gap:2px;align-items:flex-end;height:120px" id="chartBars">';
                     const barH = 110;
                     for (const ts of chunkTimestamps) {
                         const ch = chunkData[ts];
                         const h = Math.max(4, Math.round(ch.viewers / peakViewers * barH));
                         const color = ch.viewers > peakViewers * 0.7 ? '#a855f7' : ch.viewers > peakViewers * 0.3 ? '#7c3aed' : '#4ade80';
-                        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">';
-                        html += '<div title="' + ch.viewers + ' зр." style="width:100%;height:' + h + 'px;border-radius:3px 3px 0 0;background:' + color + ';min-width:4px;transition:height .3s"></div>';
+                        const timeStr = new Date(Number(ts)).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+                        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative"';
+                        html += ' onmouseover="this.querySelector(\'.bar-tip\').style.display=\'block\';this.querySelector(\'.chart-bar\').style.opacity=\'.8\'"';
+                        html += ' onmouseout="this.querySelector(\'.bar-tip\').style.display=\'none\';this.querySelector(\'.chart-bar\').style.opacity=\'1\'"';
+                        html += '>';
+                        html += '<div class="bar-tip" style="display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid rgba(168,85,247,.3);color:white;padding:4px 8px;border-radius:8px;font-size:10px;white-space:nowrap;z-index:10;margin-bottom:6px;pointer-events:none">' + ch.viewers + ' зр. · ' + timeStr + (ch.game ? ' · ' + ch.game : '') + '</div>';
+                        html += '<div class="chart-bar" style="width:100%;height:' + h + 'px;border-radius:3px 3px 0 0;background:' + color + ';min-width:4px;transition:opacity .2s;cursor:pointer"></div>';
                         html += '</div>';
                     }
                     html += '</div>';
@@ -2952,13 +3024,12 @@
                     html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
                     html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[chunkTimestamps.length - 1])).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
                     html += '</div>';
-                    html += '</div></div>';
+                    html += '</div>';
                 }
 
                 // ── VOD list ──
                 if (vods.length > 0) {
-                    html += '<div style="padding:0 20px 20px">';
-                    html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                    html += '<div style="margin-top:16px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
                     html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">🎬 Записи стримов (' + vods.length + ')</p>';
                     for (const vod of vods) {
                         const dur = (vod.duration || '').replace(/^PT/, '').replace(/H/, 'ч ').replace(/M/, 'м ').replace(/S/, 'с');
@@ -2975,17 +3046,35 @@
                         if (vod.game) html += '<span class="muted" style="font-size:11px">🎮 ' + vod.game + '</span>';
                         html += '</div></div></div>';
                     }
-                    html += '</div></div>';
+                    html += '</div>';
                 }
             } else {
-                html += '<div style="padding:40px 20px;text-align:center"><p class="muted">Нет данных стримов за этот день</p></div>';
+                html += '<div style="margin-top:20px;padding:40px 20px;text-align:center"><p class="muted">Нет данных стримов за этот день</p></div>';
             }
 
             html += '</div>';
             detailDiv.innerHTML = html;
+            detailDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } catch (e) {
             detailDiv.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
         }
+    }
+
+    function closeStreamDay() {
+        const detailDiv = document.getElementById('streamDayDetail');
+        if (!detailDiv) return;
+        detailDiv.innerHTML = '';
+        detailDiv.dataset.day = '';
+        // Show the calendar page-card again
+        document.querySelectorAll('#streamDayDetail ~ .page-card, #streamDayDetail + div > .page-card').forEach(() => {});
+        const containers = document.querySelectorAll('[id^="streamCalendarContainer_"]');
+        containers.forEach(c => {
+            const pc = c.querySelector('.page-card');
+            if (pc) pc.style.display = '';
+        });
+        // Scroll back to calendar
+        const calContainer = document.querySelector('[id^="streamCalendarContainer_"]');
+        if (calContainer) calContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
 </script>
