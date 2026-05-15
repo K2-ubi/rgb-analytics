@@ -909,6 +909,16 @@
             </div>
 
             <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+                <p class="muted" style="margin-bottom:12px">📥 Импорт CSV с SullyGnome</p>
+                <div style="display:grid;gap:12px">
+                    <input type="text" id="sgLoginInput" placeholder="Twitch логин (например k2gemer)" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+                    <input type="file" id="sgCsvInput" accept=".csv" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+                    <button class="btn primary" onclick="importSullyGnomeCSV()">📥 Импортировать CSV</button>
+                    <div id="sgImportResult" class="muted" style="font-size:13px"></div>
+                </div>
+            </div>
+
+            <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
                 <p class="muted" style="margin-bottom:12px">Все пользователи в базе:</p>
                 <div id="userList"></div>
             </div>
@@ -1049,6 +1059,69 @@
         } catch (e) {
             status.innerHTML = '❌ Ошибка: ' + e.message;
         }
+    }
+
+    async function importSullyGnomeCSV() {
+        const result = document.getElementById('sgImportResult');
+        const loginInput = document.getElementById('sgLoginInput');
+        const fileInput = document.getElementById('sgCsvInput');
+        const login = loginInput.value.trim().toLowerCase();
+        if (!login) { result.innerHTML = '❌ Введи Twitch логин'; return; }
+        if (!fileInput.files.length) { result.innerHTML = '❌ Выбери CSV файл'; return; }
+
+        const text = await fileInput.files[0].text();
+        const lines = text.trim().split('\n').slice(1);
+        let imported = 0, errors = 0;
+        result.innerHTML = '⏳ Импортирую ' + lines.length + ' стримов для @' + login + '...';
+
+        for (const line of lines) {
+            const vals = [];
+            let cur = '', inQ = false;
+            for (const ch of line) {
+                if (ch === '"') { inQ = !inQ; continue; }
+                if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; continue; }
+                cur += ch;
+            }
+            vals.push(cur.trim());
+
+            const dateRaw = vals[1] || '';
+            const streamUrl = vals[2] || '';
+            const streamMins = parseInt(vals[3]) || 0;
+            const watchMins = parseInt(vals[4]) || 0;
+            const avg = parseInt(vals[5]) || 0;
+            const peak = parseInt(vals[6]) || 0;
+            const followers = parseInt(vals[7]) || 0;
+            const games = vals[9] || '';
+
+            const months = { 'January':1,'February':2,'March':3,'April':4,'May':5,'June':6,'July':7,'August':8,'September':9,'October':10,'November':11,'December':12 };
+            const parts = dateRaw.split(' ');
+            const day = parseInt(parts[1]);
+            const month = months[parts[2]];
+            const year = parseInt(parts[3]);
+            const time = parts[4] ? parts[4].split(':') : [0,0];
+            if (!day || !month || !year) { errors++; continue; }
+            const startDate = new Date(Date.UTC(year, month - 1, day, parseInt(time[0]), parseInt(time[1])));
+            const dateStr = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+            const chunkTs = startDate.getTime();
+
+            const chunk = {
+                viewers: avg, peakViewers: peak, watchTimeMins: watchMins,
+                followersGained: followers, game: games.split(',')[0].trim(), games,
+                title: 'SullyGnome import', durationMins: streamMins,
+                updatedAt: chunkTs, source: 'sullygnome-csv'
+            };
+
+            try {
+                await db.ref('stream-chunks/' + login + '/' + dateStr + '/' + chunkTs).set(chunk);
+                imported++;
+                result.innerHTML = '⏳ Импортировано ' + imported + '/' + lines.length + ' (' + dateStr + ' ' + streamMins + 'мин)...';
+            } catch (e) {
+                errors++;
+            }
+        }
+        result.innerHTML = '✅ Импортировано ' + imported + ' стримов для @' + login + (errors ? ', ошибок: ' + errors : '');
+        loginInput.value = '';
+        fileInput.value = '';
     }
 
     function showAdminPage() {
@@ -2458,18 +2531,86 @@
         const container = document.getElementById('trackerContainer_' + safe);
         if (!container) return;
         container.style.display = 'block';
-        container.innerHTML = `
-            <div class="page-card" style="margin-top:24px;text-align:center">
-                <h2 style="font-size:24px;margin-bottom:20px">📊 Общие данные: @${login}</h2>
-                <p class="muted" style="margin-bottom:28px">Статистика на внешних платформах</p>
-                <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
-                    <a href="https://twitchtracker.com/${login}" target="_blank" class="btn primary" style="padding:16px 32px;font-size:18px;text-decoration:none;border-radius:16px">📈 TwitchTracker</a>
-                    <a href="https://sullygnome.com/channel/${login}" target="_blank" class="btn primary" style="padding:16px 32px;font-size:18px;text-decoration:none;border-radius:16px">📊 SullyGnome</a>
-                </div>
-                <p class="muted" style="margin-top:20px;font-size:13px">Откроются в новой вкладке</p>
-            </div>
-        `;
+        container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка...</p>';
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        Promise.all([
+            fetch('https://twitchtracker.com/api/channels/summary/' + login).then(r => r.ok ? r.json() : null),
+            db.ref('stream-chunks/' + login).once('value').then(s => s.val() || {})
+        ]).then(([ttData, chunks]) => {
+            const ttKeys = ttData ? Object.keys(ttData) : [];
+
+            let totalStreams = 0, totalMinutes = 0, totalWatchTime = 0, totalFollowers = 0;
+            let sumAvgViewers = 0, maxPeakViewers = 0;
+            const allGames = new Set();
+            const allDates = new Set();
+            for (const dateStr of Object.keys(chunks)) {
+                const dayChunks = chunks[dateStr];
+                for (const ts of Object.keys(dayChunks)) {
+                    const c = dayChunks[ts];
+                    if (c.source !== 'sullygnome-csv') continue;
+                    totalStreams++;
+                    totalMinutes += c.durationMins || 0;
+                    totalWatchTime += c.watchTimeMins || 0;
+                    totalFollowers += c.followersGained || 0;
+                    sumAvgViewers += c.viewers || 0;
+                    if ((c.peakViewers || 0) > maxPeakViewers) maxPeakViewers = c.peakViewers;
+                    if (c.games) c.games.split(',').forEach(g => allGames.add(g.trim()));
+                    allDates.add(dateStr);
+                }
+            }
+            const sgAvgViewers = totalStreams ? Math.round(sumAvgViewers / totalStreams) : 0;
+            const sgHours = Math.floor(totalMinutes / 60);
+            const sgMins = totalMinutes % 60;
+
+            let html = '<div class="page-card" style="margin-top:24px">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
+            html += '<h2 style="font-size:24px">📊 Общие данные: @' + login + '</h2>';
+            html += '<button class="btn" onclick="renderTrackerStats(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>';
+            html += '</div>';
+
+            if (ttKeys.length) {
+                const ttm = ttData.minutes_streamed || 0;
+                const tth = Math.floor(ttm / 60);
+                const ttmi = ttm % 60;
+                html += '<h3 style="font-size:16px;margin-bottom:12px">📈 TwitchTracker — 30 дней</h3>';
+                html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                html += '<div class="metric"><p>📈 Средние</p><strong style="font-size:22px;color:#a855f7">' + (ttData.avg_viewers || 0) + '</strong></div>';
+                html += '<div class="metric"><p>🔥 Пик</p><strong style="font-size:22px;color:#a855f7">' + (ttData.max_viewers || 0) + '</strong></div>';
+                html += '<div class="metric"><p>⏱ Эфир</p><strong style="font-size:22px">' + tth + 'ч ' + ttmi + 'м</strong></div>';
+                html += '<div class="metric"><p>👁 Часов просмотра</p><strong style="font-size:22px">' + (ttData.hours_watched || 0).toLocaleString('ru-RU') + '</strong></div>';
+                html += '<div class="metric"><p>📊 Новые фоловеры</p><strong style="font-size:22px">' + (ttData.followers || 0).toLocaleString('ru-RU') + '</strong></div>';
+                html += '<div class="metric"><p>👥 Всего фоловеров</p><strong style="font-size:22px">' + (ttData.followers_total || 0).toLocaleString('ru-RU') + '</strong></div>';
+                if (ttData.rank) html += '<div class="metric"><p>🏆 Рейтинг</p><strong style="font-size:22px">#' + ttData.rank + '</strong></div>';
+                html += '</div>';
+            } else {
+                html += '<h3 style="font-size:16px;margin-bottom:12px">📈 TwitchTracker</h3>';
+                html += '<p class="muted" style="margin-bottom:24px">Нет данных от TwitchTracker</p>';
+            }
+
+            if (totalStreams > 0) {
+                html += '<h3 style="font-size:16px;margin-bottom:12px">📊 SullyGnome — импортированные стримы</h3>';
+                html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                html += '<div class="metric"><p>🎬 Стримов</p><strong style="font-size:22px">' + totalStreams + '</strong></div>';
+                html += '<div class="metric"><p>📅 Дней</p><strong style="font-size:22px">' + allDates.size + '</strong></div>';
+                html += '<div class="metric"><p>⏱ В эфире</p><strong style="font-size:22px">' + sgHours + 'ч ' + sgMins + 'м</strong></div>';
+                html += '<div class="metric"><p>📈 Средние</p><strong style="font-size:22px;color:#a855f7">' + sgAvgViewers + '</strong></div>';
+                html += '<div class="metric"><p>🔥 Пик</p><strong style="font-size:22px;color:#a855f7">' + maxPeakViewers + '</strong></div>';
+                html += '<div class="metric"><p>👁 Время просмотра</p><strong style="font-size:22px">' + Math.floor(totalWatchTime / 60) + 'ч ' + (totalWatchTime % 60) + 'м</strong></div>';
+                html += '<div class="metric"><p>📊 Новые фоловеры</p><strong style="font-size:22px">' + totalFollowers + '</strong></div>';
+                if (allGames.size) html += '<div class="metric" style="grid-column:1/-1"><p>🎮 Игры</p><strong style="font-size:14px">' + [...allGames].join(', ') + '</strong></div>';
+                html += '</div>';
+            } else {
+                html += '<h3 style="font-size:16px;margin-bottom:12px">📊 SullyGnome</h3>';
+                html += '<p class="muted" style="margin-bottom:24px">Нет импортированных данных</p>';
+            }
+
+            html += '<p class="muted" style="font-size:12px">Данные обновлены: ' + new Date().toLocaleString('ru-RU') + '</p>';
+            html += '</div>';
+            container.innerHTML = html;
+        }).catch(e => {
+            container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
+        });
     }
 
     function renderViewerAnalysis(login, userId) {
