@@ -2793,11 +2793,16 @@
             }
 
             let html = '<div class="page-card" style="margin-top:24px">';
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">';
+
+            // ── Channel info bar (SullyGnome style) ──
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:16px">';
             html += '<div><h2 style="font-size:24px">📅 Календарь стримов</h2>';
-            html += '<p class="muted">' + login + (isLive ? ' | 🔴 Сейчас в эфире!</p></div>' : ' — ' + allVods.length + ' VOD</p></div>');
-            html += '<button class="btn" onclick="_streamVodCache[\'' + login + '\']=null;renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + monthKey + '\')" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>';
-            html += '</div>';
+            html += '<p class="muted" style="font-size:12px">Статистика стримов по дням</p></div>';
+            html += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
+            html += '<span class="muted" style="font-size:12px">📺 ' + daysWithActivity.size + ' дней со стримами</span>';
+            if (isLive) html += '<span style="font-size:12px;color:#ef4444">🔴 Сейчас в эфире!</span>';
+            html += '<button class="btn" onclick="_streamVodCache[\'' + login + '\']=null;renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + monthKey + '\')" style="padding:6px 12px;font-size:12px">🔄</button>';
+            html += '</div></div>';
 
             // Live banner
             if (liveStream) {
@@ -2808,30 +2813,45 @@
                 html += '</div>';
             }
 
+            // ── Calendar description (SullyGnome style) ──
+            html += '<div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid var(--border)">';
+            html += 'Отображаются данные из stream-chunks (' + Object.keys(mcDays).length + ' дней с данными)' + (allVods.length ? ' и ' + allVods.length + ' VOD' : '') + '. ';
+            html += 'Время начала и окончания могут отличаться до 15 минут. Нажмите на день с активностью для просмотра деталей.';
+            html += '</div>';
+
             // Month navigation
             html += '<div class="month-nav">';
             html += '<button onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + prevM + '\')" ' + (!hasPrev ? 'disabled style="opacity:.3"' : '') + '>←</button>';
-            html += '<h3>' + monthNames[month - 1] + ' ' + year + ' <span class="muted" style="font-size:14px;font-weight:400">' + daysWithActivity.size + ' дней со стримами</span></h3>';
+            html += '<h3>' + monthNames[month - 1] + ' ' + year + '</h3>';
             html += '<button onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + nextM + '\')">→</button>';
             html += '</div>';
 
             // Main calendar grid
-            html += '<div style="background:rgba(255,255,255,.04);border-radius:20px;padding:20px;border:1px solid var(--border)">';
-            html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center">';
-            html += ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => '<div style="font-size:11px;color:var(--muted);padding:6px 0;font-weight:600">' + d + '</div>').join('');
+            html += '<div style="background:rgba(255,255,255,.04);border-radius:20px;padding:16px;border:1px solid var(--border)">';
+            html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">';
+            html += ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => '<div style="font-size:10px;color:var(--muted);padding:4px 0;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.05em">' + d + '</div>').join('');
             const startPad = firstDay === 0 ? 6 : firstDay - 1;
             for (let i = 0; i < startPad; i++) { html += '<div></div>'; }
             for (let day = 1; day <= daysInMonth; day++) {
                 const hasActivity = daysWithActivity.has(day);
                 const isToday = now.getFullYear() === year && now.getMonth() === month - 1 && now.getDate() === day;
-                const bg = isToday ? 'rgba(168,85,247,.2)' : hasActivity ? 'rgba(168,85,247,.07)' : 'transparent';
-                const bd = isToday ? '1px solid rgba(168,85,247,.35)' : '1px solid transparent';
-                html += '<div style="position:relative;padding:10px 0;border-radius:12px;cursor:' + (hasActivity ? 'pointer' : 'default') + ';background:' + bg + ';border:' + bd + ';transition:.15s"';
+                const sd = mcDays[day] || {};
+                const cellDuration = sd.totalMins || 0;
+                const cellAvg = sd.count ? Math.round(sd.sumViewers / sd.count) : 0;
+                const cellPeak = sd.maxViewers || 0;
+                const bg = isToday ? 'rgba(168,85,247,.18)' : hasActivity ? 'rgba(255,255,255,.03)' : 'transparent';
+                const bd = isToday ? '1px solid rgba(168,85,247,.35)' : hasActivity ? '1px solid rgba(168,85,247,.08)' : '1px solid transparent';
+                html += '<div style="position:relative;padding:6px 4px;border-radius:8px;cursor:' + (hasActivity ? 'pointer' : 'default') + ';background:' + bg + ';border:' + bd + ';transition:.15s;text-align:center;min-height:48px"';
                 if (hasActivity) { html += ' onclick="showStreamDay(\'' + login + '\', \'' + userId + '\', ' + year + ', ' + month + ', ' + day + ')"'; }
                 html += ' onmouseover="this.style.background=\'' + (hasActivity ? 'rgba(168,85,247,.15)' : 'rgba(255,255,255,.04)') + '\'" onmouseout="this.style.background=\'' + bg + '\'"';
                 html += '>';
-                html += '<span style="font-size:15px;font-weight:' + (hasActivity ? '700' : '400') + ';color:' + (hasActivity ? 'white' : 'var(--muted)') + '">' + day + '</span>';
-                if (hasActivity) { html += '<div style="width:6px;height:6px;border-radius:50%;background:#a855f7;margin:2px auto 0"></div>'; }
+                html += '<div style="font-size:13px;font-weight:' + (hasActivity ? '700' : '400') + ';color:' + (hasActivity ? 'white' : 'var(--muted)') + '">' + day + '</div>';
+                if (hasActivity && cellDuration > 0) {
+                    html += '<div style="font-size:9px;color:rgba(168,85,247,.6);margin-top:1px;line-height:1.2">' + (cellDuration >= 60 ? Math.floor(cellDuration / 60) + 'ч' : cellDuration + 'м') + '</div>';
+                    if (cellAvg > 0) html += '<div style="font-size:8px;color:rgba(255,255,255,.4);line-height:1.2">👁 ' + cellAvg + '</div>';
+                } else if (hasActivity) {
+                    html += '<div style="width:5px;height:5px;border-radius:50%;background:#a855f7;margin:4px auto 0"></div>';
+                }
                 html += '</div>';
             }
             html += '</div>';
@@ -2846,9 +2866,9 @@
                 html += '</div>';
             }
 
-            // Detail section
-            html += '<div id="streamDayDetail" style="margin-top:16px"></div>';
             html += '</div>';
+            // Detail section — outside .page-card so hiding calendar doesn't hide it
+            html += '<div id="streamDayDetail" style="margin-top:16px"></div>';
             container.innerHTML = html;
         } catch (e) {
             container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка загрузки: ' + e.message + '</p>';
@@ -2859,13 +2879,11 @@
         const detailDiv = document.getElementById('streamDayDetail');
         if (!detailDiv) return;
 
-        // Page-like navigation: hide calendar container, save state, show full detail
         const safe = login.replace(/[^a-z0-9]/gi, '');
         const calContainer = document.getElementById('streamCalendarContainer_' + safe);
-        const pageCard = detailDiv.closest('.page-card') || calContainer?.querySelector('.page-card');
         const calPageCard = calContainer?.querySelector('.page-card');
 
-        // Hide calendar elements
+        // Hide calendar, show detail
         if (calPageCard) calPageCard.style.display = 'none';
 
         detailDiv.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка данных...</p>';
@@ -3064,9 +3082,7 @@
         const detailDiv = document.getElementById('streamDayDetail');
         if (!detailDiv) return;
         detailDiv.innerHTML = '';
-        detailDiv.dataset.day = '';
-        // Show the calendar page-card again
-        document.querySelectorAll('#streamDayDetail ~ .page-card, #streamDayDetail + div > .page-card').forEach(() => {});
+        delete detailDiv.dataset.day;
         const containers = document.querySelectorAll('[id^="streamCalendarContainer_"]');
         containers.forEach(c => {
             const pc = c.querySelector('.page-card');
