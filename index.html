@@ -165,10 +165,7 @@
                 <p class="muted" style="font-size:12px;margin-bottom:6px">📷 Скриншот (не обязательно)</p>
                 <input type="file" id="bugScreenshot" accept="image/*" style="width:100%;padding:10px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:13px">
             </div>
-            <div>
-                <p class="muted" style="font-size:12px;margin-bottom:6px">💻 Информация об устройстве</p>
-                <div class="device-info" id="bugDeviceInfo"></div>
-            </div>
+            <div id="bugDeviceInfo" style="display:none"></div>
             <div style="display:flex;gap:10px">
                 <button class="btn primary" onclick="submitBugReport()" id="bugSubmitBtn" style="flex:1">📤 Отправить</button>
                 <button class="btn" onclick="closeBugReport()">Отмена</button>
