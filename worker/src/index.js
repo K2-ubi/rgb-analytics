@@ -1,12 +1,10 @@
 const TWITCH_TOKEN = 'https://id.twitch.tv/oauth2/token';
 const TWITCH_API  = 'https://api.twitch.tv/helix';
-
-const CLIENT_ID = 'nvbp7ivyet47jxun4efsk3v803px73';
-const REDIRECT_URI = 'https://gentle-smoke-7903.konstasil777.workers.dev/api/callback';
+const TWITCH_CLIENT_ID = 'nvbp7ivyet47jxun4efsk3v803px73';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS, POST',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
@@ -19,9 +17,8 @@ export default {
         case '/api/auth': return auth();
         case '/api/callback': return callback(url, env);
         case '/api/status': return status(env);
-        case '/api/chatters': return proxyAsBot(url, env, '/chat/chatters');
-        case '/api/followers': return proxyAsBot(url, env, '/channels/followers');
         case '/api/bot-info': return botInfo(env);
+        case '/api/monitor-streams': return monitorStreams(env);
         default: return json({ error: 'not found' }, 404);
       }
     } catch (e) {
@@ -30,6 +27,7 @@ export default {
   },
   async scheduled(_event, env) {
     await getToken(env);
+    await monitorStreams(env);
   },
 };
 
@@ -44,7 +42,7 @@ async function getToken(env) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'refresh_token', refresh_token: rt,
-      client_id: CLIENT_ID, client_secret: env.CLIENT_SECRET,
+      client_id: TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
     }),
   });
   const d = await r.json();
@@ -59,7 +57,7 @@ async function getToken(env) {
 async function saveInfo(env, token) {
   if (await env.KV.get('bot_login')) return;
   const r = await fetch(TWITCH_API + '/users', {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
   });
   const d = await r.json();
   if (d.data?.[0]) {
@@ -71,7 +69,7 @@ async function saveInfo(env, token) {
 
 function auth() {
   const p = new URLSearchParams({
-    client_id: CLIENT_ID,
+    client_id: TWITCH_CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
     scope: 'moderator:read:chatters moderator:read:followers',
@@ -87,7 +85,7 @@ async function callback(url, env) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id: CLIENT_ID, client_secret: env.CLIENT_SECRET,
+      client_id: TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
       code, grant_type: 'authorization_code',
       redirect_uri: REDIRECT_URI,
     }),
@@ -106,7 +104,7 @@ async function proxy(url, env, path) {
   const token = await getToken(env);
   const q = new URLSearchParams(url.search);
   const r = await fetch(TWITCH_API + path + '?' + q, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
   });
   return json(await r.json(), r.status);
 }
@@ -117,7 +115,7 @@ async function proxyAsBot(url, env, path) {
   const botId = await env.KV.get('bot_id');
   if (botId) q.set('moderator_id', botId);
   const r = await fetch(TWITCH_API + path + '?' + q, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
   });
   return json(await r.json(), r.status);
 }
@@ -126,7 +124,7 @@ async function botInfo(env) {
   const token = await getToken(env);
   return json({
     token,
-    client_id: CLIENT_ID,
+    client_id: TWITCH_CLIENT_ID,
     login: await env.KV.get('bot_login'),
     display: await env.KV.get('bot_display'),
     id: await env.KV.get('bot_id'),
@@ -143,6 +141,100 @@ async function status(env) {
     expires_at: exp,
     expires_in: Math.max(0, Math.floor((exp - Date.now()) / 1000)),
   });
+}
+
+async function firebaseGet(env, path) {
+  if (!env.FIREBASE_DB_SECRET) return null;
+  const r = await fetch(env.FIREBASE_DB_URL + '/' + path + '.json?auth=' + env.FIREBASE_DB_SECRET);
+  return r.ok ? r.json() : null;
+}
+
+async function firebasePatch(env, path, data) {
+  if (!env.FIREBASE_DB_SECRET) return;
+  await fetch(env.FIREBASE_DB_URL + '/' + path + '.json?auth=' + env.FIREBASE_DB_SECRET, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+async function monitorStreams(env) {
+  const now = Date.now();
+  const d = new Date();
+  const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+
+  // Get squad members list from Firebase or KV cache
+  let members = null;
+  if (env.FIREBASE_DB_SECRET) {
+    try {
+      const users = await firebaseGet(env, 'twitch-users');
+      if (users) {
+        members = Object.entries(users)
+          .filter(([, u]) => u.roles && (u.roles.squad || u.roles.academy))
+          .map(([login, u]) => ({ login, id: u.twitchId }));
+      }
+    } catch (e) { console.error('firebase squad read error:', e); }
+  }
+
+  // Fallback: set FIREBASE_DB_SECRET secret to automatically load squad from Firebase
+  //   wrangler secret put FIREBASE_DB_SECRET
+  if (!members || members.length === 0) {
+    console.log('No squad list — set FIREBASE_DB_SECRET to read from Firebase');
+    return [];
+  }
+
+  const token = await getToken(env);
+  const results = [];
+
+  for (const member of members) {
+    try {
+      // Resolve Twitch user ID if not cached
+      let userId = member.id;
+      if (!userId) {
+        const uRes = await fetch(TWITCH_API + '/users?login=' + member.login, {
+          headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
+        });
+        const uData = await uRes.json();
+        if (!uData.data?.[0]) continue;
+        userId = uData.data[0].id;
+        member.id = userId;
+      }
+
+      // Check if currently live
+      const sRes = await fetch(TWITCH_API + '/streams?user_id=' + userId, {
+        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
+      });
+      const sData = await sRes.json();
+      const stream = sData.data?.[0];
+
+      if (stream) {
+        const chunk = {
+          viewers: stream.viewer_count,
+          game: stream.game_name || 'unknown',
+          title: stream.title || '',
+          language: stream.language || '',
+          updatedAt: now,
+        };
+
+        // Save chunk to Firebase
+        const chunkPath = 'stream-chunks/' + member.login + '/' + dateStr + '/' + now;
+        await firebasePatch(env, chunkPath, chunk);
+
+        results.push({ login: member.login, online: true, viewers: stream.viewer_count, game: stream.game_name });
+      } else {
+        results.push({ login: member.login, online: false });
+      }
+    } catch (e) {
+      console.error('monitor error for ' + member.login + ':', e);
+      results.push({ login: member.login, error: e.message });
+    }
+  }
+
+  // Update last-monitor timestamp
+  await firebasePatch(env, 'stream-cache/_monitor', { lastRun: now, results });
+
+  console.log('Monitor results:', JSON.stringify(results));
+  return results;
 }
 
 function json(data, s = 200) {
