@@ -73,7 +73,7 @@ function auth() {
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
-    scope: 'moderator:read:chatters+moderator:read:followers',
+    scope: 'moderator:read:chatters moderator:read:followers',
     force_verify: 'true',
   });
   return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
