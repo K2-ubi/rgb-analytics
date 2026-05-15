@@ -195,6 +195,27 @@
         return cfg.workerUrl || null;
     }
 
+    async function twitchApi(path, params = {}) {
+        const q = typeof params === 'string' ? params : new URLSearchParams(params).toString();
+        const workerUrl = await getBotWorkerUrl();
+        if (workerUrl) {
+            try {
+                const res = await fetch(workerUrl + '/api/helix?path=' + encodeURIComponent(path) + (q ? '&' + q : ''));
+                if (res.ok) return res;
+            } catch (e) {}
+        }
+        const botHeaders = await getBotHeaders();
+        if (botHeaders) {
+            const res = await fetch('https://api.twitch.tv/helix' + path + (q ? '?' + q : ''), { headers: botHeaders });
+            if (res.ok) return res;
+        }
+        const token = localStorage.getItem('twitchAccessToken');
+        if (!token) throw new Error('No auth');
+        return await fetch('https://api.twitch.tv/helix' + path + (q ? '?' + q : ''), {
+            headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+        });
+    }
+
     let _ipCache = null;
     async function getIP() {
         if (_ipCache) return _ipCache;
@@ -327,10 +348,7 @@
 
         try {
             const res = await fetch('https://api.twitch.tv/helix/users', {
-                headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Client-Id': TWITCH_CLIENT_ID
-                }
+                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
             });
             if (!res.ok) {
                 localStorage.removeItem('twitchAccessToken');
@@ -524,22 +542,13 @@
             const login = this._broadcasterLogin;
             if (!id) return;
 
-            const token = localStorage.getItem('twitchAccessToken');
             const modId = currentTwitchUser?.id;
-            if (!token || !modId) return;
+            if (!modId) return;
 
-            // Use Worker or bot token for moderator-scoped API
-            const workerUrl = await getBotWorkerUrl();
             let chattersRes;
             try {
                 const now = Date.now();
-                if (workerUrl) {
-                    chattersRes = await fetch(workerUrl + '/api/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100');
-                } else {
-                    const botHeaders = await getBotHeaders();
-                    const hdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-                    chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100', { headers: hdrs });
-                }
+                chattersRes = await twitchApi('/chat/chatters', 'broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100');
                 if (!chattersRes.ok) return;
                 const data = await chattersRes.json();
                 const currentIds = new Set();
@@ -549,10 +558,7 @@
                 const ids = chatters.map(c => c.user_id).filter(Boolean);
                 let userMap = {};
                 if (ids.length > 0) {
-                    const uRes = await fetch(
-                        'https://api.twitch.tv/helix/users?id=' + ids.join('&id='),
-                        { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } }
-                    );
+                    const uRes = await twitchApi('/users', 'id=' + ids.join('&id='));
                     if (uRes.ok) { const uData = await uRes.json(); (uData.data || []).forEach(u => { userMap[u.id] = u; }); }
                 }
 
@@ -622,16 +628,13 @@
                     let currentGame = cachedStream.game || '';
                     // Try to get current game from tracker context
                     if (!currentGame && this._broadcasterId) {
-                        const hdrs = (await getBotHeaders()) || (localStorage.getItem('twitchAccessToken') ? { 'Authorization': 'Bearer ' + localStorage.getItem('twitchAccessToken'), 'Client-Id': TWITCH_CLIENT_ID } : null);
-                        if (hdrs) {
-                            try {
-                                const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + this._broadcasterId, { headers: hdrs });
-                                const stData = await stRes.json();
-                                if (stData.data && stData.data[0]) {
-                                    currentGame = stData.data[0].game_name;
-                                }
-                            } catch (e) {}
-                        }
+                        try {
+                            const stRes = await twitchApi('/streams', 'user_id=' + this._broadcasterId);
+                            const stData = await stRes.json();
+                            if (stData.data && stData.data[0]) {
+                                currentGame = stData.data[0].game_name;
+                            }
+                        } catch (e) {}
                     }
                     const updates = {};
                     for (const vid of vids) {
@@ -1225,19 +1228,15 @@
         if (!force && cachedUsers && (now - cachedUsersTime < CACHE_TTL)) {
             return cachedUsers;
         }
-        const token = localStorage.getItem('twitchAccessToken');
         const snap = await db.ref('twitch-users').once('value');
         const all = snap.val();
         if (!all) { cachedUsers = []; cachedUsersTime = now; return []; }
         const logins = Object.keys(all);
         const members = [];
 
-        if (token && logins.length > 0) {
+        if (logins.length > 0) {
             try {
-                const url = 'https://api.twitch.tv/helix/users?login=' + logins.join('&login=');
-                const res = await fetch(url, {
-                    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-                });
+                const res = await twitchApi('/users', 'login=' + logins.join('&login='));
                 const data = await res.json();
                 const userMap = {};
                 data.data.forEach(u => { userMap[u.login.toLowerCase()] = u; });
@@ -1245,9 +1244,7 @@
                 const ids = data.data.map(u => u.id).filter(Boolean);
                 let streamMap = {};
                 if (ids.length > 0) {
-                    const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + ids.join('&user_id='), {
-                        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-                    });
+                    const stRes = await twitchApi('/streams', 'user_id=' + ids.join('&user_id='));
                     const stData = await stRes.json();
                     stData.data.forEach(s => { streamMap[s.user_id] = s; });
                 }
@@ -1267,19 +1264,12 @@
                     });
                 }
 
-                // Fetch followers for all members in parallel (use Worker / bot token)
+                // Fetch followers for all members in parallel
                 const modId = currentTwitchUser?.id || '';
-                const fWorkerUrl = await getBotWorkerUrl();
                 if (modId) {
                     await Promise.all(members.filter(m => m.twitchId).map(async (m) => {
                         try {
-                            let fRes;
-                            if (fWorkerUrl) {
-                                fRes = await fetch(fWorkerUrl + '/api/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1');
-                            } else {
-                                const fHdrs = (await getBotHeaders()) || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-                                fRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1', { headers: fHdrs });
-                            }
+                            const fRes = await twitchApi('/channels/followers', 'broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1');
                             if (fRes.ok) { const fData = await fRes.json(); m.followers = fData.total || 0; }
                         } catch (e) {}
                     }));
@@ -1379,29 +1369,16 @@
 
     async function openCreator(name) {
         currentOpenCreator = name;
-        const token = localStorage.getItem('twitchAccessToken');
-        const botHeaders = await getBotHeaders();
-        const fWorkerUrl = await getBotWorkerUrl();
         let user, stream, followers = 0;
         try {
-            const res = await fetch('https://api.twitch.tv/helix/users?login=' + name, {
-                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-            });
+            const res = await twitchApi('/users', 'login=' + name);
             const data = await res.json();
             user = data.data[0];
             if (user) {
                 const modId = currentTwitchUser?.id || user.id;
-                let flRes;
-                if (fWorkerUrl) {
-                    flRes = await fetch(fWorkerUrl + '/api/followers?broadcaster_id=' + user.id + '&moderator_id=' + modId + '&first=1');
-                } else {
-                    const fHdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-                    flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + modId + '&first=1', { headers: fHdrs });
-                }
+                const flRes = await twitchApi('/channels/followers', 'broadcaster_id=' + user.id + '&moderator_id=' + modId + '&first=1');
                 if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
-                const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
-                    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-                });
+                const stRes = await twitchApi('/streams', 'user_id=' + user.id);
                 const stData = await stRes.json();
                 stream = stData.data && stData.data[0] ? stData.data[0] : null;
             }
@@ -1697,12 +1674,9 @@
 
             // Try to get current Twitch info for this viewer
             let twitchInfo = null;
-            const token = localStorage.getItem('twitchAccessToken');
-            if (token && login) {
+            if (login) {
                 try {
-                    const uRes = await fetch('https://api.twitch.tv/helix/users?login=' + login, {
-                        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-                    });
+                    const uRes = await twitchApi('/users', 'login=' + login);
                     const uData = await uRes.json();
                     twitchInfo = uData.data && uData.data[0] ? uData.data[0] : null;
                 } catch (e) {}
@@ -1891,23 +1865,12 @@
         currentOpenCreator = null;
         const user = currentTwitchUser;
         if (!user) return;
-        const token = localStorage.getItem('twitchAccessToken');
-        const botHeaders = await getBotHeaders();
-        const fWorkerUrl = await getBotWorkerUrl();
         let followers = 0;
         let streamInfo = null;
         try {
-            let flRes;
-            if (fWorkerUrl) {
-                flRes = await fetch(fWorkerUrl + '/api/followers?broadcaster_id=' + user.id + '&moderator_id=' + user.id + '&first=1');
-            } else {
-                const fHdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-                flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + user.id + '&first=1', { headers: fHdrs });
-            }
+            const flRes = await twitchApi('/channels/followers', 'broadcaster_id=' + user.id + '&moderator_id=' + user.id + '&first=1');
             if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
-            const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
-                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-            });
+            const stRes = await twitchApi('/streams', 'user_id=' + user.id);
             const stData = await stRes.json();
             streamInfo = stData.data && stData.data[0] ? stData.data[0] : null;
         } catch (e) {}
