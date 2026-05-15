@@ -19,8 +19,9 @@ export default {
         case '/api/auth': return auth();
         case '/api/callback': return callback(url, env);
         case '/api/status': return status(env);
-        case '/api/chatters': return proxy(url, env, '/chat/chatters');
-        case '/api/followers': return proxy(url, env, '/channels/followers');
+        case '/api/chatters': return proxyAsBot(url, env, '/chat/chatters');
+        case '/api/followers': return proxyAsBot(url, env, '/channels/followers');
+        case '/api/bot-info': return botInfo(env);
         default: return json({ error: 'not found' }, 404);
       }
     } catch (e) {
@@ -108,6 +109,28 @@ async function proxy(url, env, path) {
     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': CLIENT_ID },
   });
   return json(await r.json(), r.status);
+}
+
+async function proxyAsBot(url, env, path) {
+  const token = await getToken(env);
+  const q = new URLSearchParams(url.search);
+  const botId = await env.KV.get('bot_id');
+  if (botId) q.set('moderator_id', botId);
+  const r = await fetch(TWITCH_API + path + '?' + q, {
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': CLIENT_ID },
+  });
+  return json(await r.json(), r.status);
+}
+
+async function botInfo(env) {
+  const token = await getToken(env);
+  return json({
+    token,
+    login: await env.KV.get('bot_login'),
+    display: await env.KV.get('bot_display'),
+    id: await env.KV.get('bot_id'),
+    expires_at: parseInt(await env.KV.get('expires_at') || '0'),
+  });
 }
 
 async function status(env) {
