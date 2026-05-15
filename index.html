@@ -2801,7 +2801,6 @@
             const startOfDay = new Date(year, month - 1, day).getTime();
             const endOfDay = startOfDay + 86400000;
 
-            // Get VODs from cache
             const cached = _streamVodCache[login];
             let vods = [];
             if (cached) {
@@ -2811,7 +2810,6 @@
                 });
             }
 
-            // Load chunks from Firebase
             let chunkData = {};
             try {
                 const dateStr = String(year) + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
@@ -2822,74 +2820,169 @@
             const chunkTimestamps = Object.keys(chunkData).sort();
             const peakViewers = chunkTimestamps.length ? Math.max(1, ...chunkTimestamps.map(t => chunkData[t].viewers || 0)) : 0;
             const avgViewers = chunkTimestamps.length ? Math.round(chunkTimestamps.reduce((s, t) => s + (chunkData[t].viewers || 0), 0) / chunkTimestamps.length) : 0;
-            const durationMin = chunkTimestamps.length * 15;
+            const realDurationMin = chunkTimestamps.reduce((s, t) => {
+                const c = chunkData[t];
+                return c.durationMins ? Math.max(s, c.durationMins) : s + 15;
+            }, 0);
+            const durationMin = realDurationMin || chunkTimestamps.length * 15;
+            const watchTimeMins = chunkTimestamps.reduce((s, t) => s + (chunkData[t].watchTimeMins || 0), 0);
+            const followersGained = chunkTimestamps.reduce((s, t) => s + (chunkData[t].followersGained || 0), 0);
             const games = new Set(chunkTimestamps.map(t => chunkData[t].game).filter(Boolean));
+            const firstChunk = chunkTimestamps.length ? chunkData[chunkTimestamps[0]] : null;
+            const firstGame = firstChunk?.game || '';
 
-            let html = '<div style="padding:20px;border-radius:20px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.15)">';
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
-            html += '<h3 style="font-size:18px">🎬 ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h3>';
+            // Calculate performance vs all cached streams
+            let perfClass = 'neutral', perfLabel = 'На уровне', trendClass = 'neutral', trendLabel = 'Стабильно';
+            if (cached && cached.vods.length > 1) {
+                const allAvgs = cached.vods
+                    .filter(v => v.view_count > 0)
+                    .map(v => v.view_count || 0);
+                const allAvg = allAvgs.length ? allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length : 0;
+                if (avgViewers > allAvg * 1.15) { perfClass = 'above'; perfLabel = 'Выше среднего'; }
+                else if (avgViewers < allAvg * 0.85) { perfClass = 'below'; perfLabel = 'Ниже среднего'; }
+
+                // Trend: compare to the immediately previous stream
+                const sortedVods = [...cached.vods].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                const currentIdx = sortedVods.findIndex(v => {
+                    const t = new Date(v.created_at).getTime();
+                    return t >= startOfDay && t < endOfDay;
+                });
+                if (currentIdx >= 0 && currentIdx < sortedVods.length - 1) {
+                    const prev = sortedVods[currentIdx + 1];
+                    const prevAvg = prev.view_count || 0;
+                    if (avgViewers > prevAvg * 1.1) { trendClass = 'positive'; trendLabel = 'Рост ↗'; }
+                    else if (avgViewers < prevAvg * 0.9) { trendClass = 'negative'; trendLabel = 'Падение ↘'; }
+                }
+            }
+
+            const perfColors = { above: '#4ade80', below: '#ef4444', neutral: '#a855f7' };
+            const trendColors = { positive: '#4ade80', negative: '#ef4444', neutral: '#a855f7' };
+
+            let html = '<div style="border-radius:20px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.15);overflow:hidden">';
+
+            // ── Sub-header: date + close + meta strip ──
+            html += '<div style="padding:16px 20px 12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid rgba(168,85,247,.12)">';
+            html += '<div><h3 style="font-size:18px">🎬 ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h3>';
+            html += '<p class="muted" style="font-size:12px">' + login + '</p></div>';
             html += '<button class="btn" onclick="document.getElementById(\'streamDayDetail\').innerHTML=\'\';document.getElementById(\'streamDayDetail\').dataset.day=\'\'" style="padding:6px 12px;font-size:12px">✕</button>';
             html += '</div>';
 
             if (chunkTimestamps.length > 0 || vods.length > 0) {
-                // Stats row
-                html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">';
-                html += '<div class="metric" style="flex:1;min-width:120px"><p>⏱ Длительность</p><strong style="font-size:22px">' + (durationMin >= 60 ? Math.floor(durationMin / 60) + 'ч ' + (durationMin % 60) + 'м' : durationMin + 'м') + '</strong></div>';
-                html += '<div class="metric" style="flex:1;min-width:120px"><p>📈 Пик</p><strong style="font-size:22px;color:#a855f7">' + peakViewers + '</strong></div>';
-                html += '<div class="metric" style="flex:1;min-width:120px"><p>📊 Среднее</p><strong style="font-size:22px">' + avgViewers + '</strong></div>';
-                if (games.size) html += '<div class="metric" style="flex:1;min-width:120px"><p>🎮 Игры</p><strong style="font-size:16px">' + [...games].join(', ') + '</strong></div>';
-                if (vods.length) html += '<div class="metric" style="flex:1;min-width:120px"><p>🎬 VOD</p><strong style="font-size:22px">' + vods.length + '</strong></div>';
+                // ── Meta strip (like SullyGnome sub-header) ──
+                html += '<div style="display:flex;gap:0;flex-wrap:wrap;border-bottom:1px solid rgba(168,85,247,.08);background:rgba(255,255,255,.015)">';
+                html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Начало</p><b style="font-size:13px">' + (chunkTimestamps.length ? new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit'}) : '—') + '</b></div>';
+                html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Длительность</p><b style="font-size:13px">' + (durationMin >= 60 ? Math.floor(durationMin / 60) + 'ч ' + (durationMin % 60) + 'м' : durationMin + 'м') + '</b></div>';
+                html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Время просмотра</p><b style="font-size:13px">' + (watchTimeMins >= 60 ? Math.floor(watchTimeMins / 60) + 'ч ' + (watchTimeMins % 60) + 'м' : watchTimeMins + 'м') + '</b></div>';
+                html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center"><p class="muted" style="font-size:10px;text-transform:uppercase">Новые фоловеры</p><b style="font-size:13px;color:#4ade80">+' + followersGained + '</b></div>';
                 html += '</div>';
 
-                // Bar chart
+                // ── Main stats panel (like SullyGnome MiniPanel) ──
+                html += '<div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px">';
+
+                // Left: avg viewers panel
+                html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+                html += '<p class="muted" style="font-size:11px;text-transform:uppercase">Средние зрители</p>';
+                html += '<span style="font-size:11px;color:' + perfColors[perfClass] + '">' + perfLabel + '</span>';
+                html += '</div>';
+                html += '<strong style="font-size:36px;color:#a855f7">' + avgViewers + '</strong>';
+                // mini bar
+                const barPct = peakViewers > 0 ? Math.min(100, Math.round(avgViewers / peakViewers * 100)) : 0;
+                html += '<div style="margin-top:10px;height:4px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:' + barPct + '%;border-radius:2px;background:linear-gradient(90deg,#a855f7,#7c3aed)"></div></div>';
+                html += '</div>';
+
+                // Right: peak viewers panel
+                html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+                html += '<p class="muted" style="font-size:11px;text-transform:uppercase">Пик зрителей</p>';
+                html += '<span style="font-size:11px;color:' + trendColors[trendClass] + '">' + trendLabel + '</span>';
+                html += '</div>';
+                html += '<strong style="font-size:36px;color:white">' + peakViewers + '</strong>';
+                html += '<div style="margin-top:10px;height:4px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:100%;border-radius:2px;background:linear-gradient(90deg,#7c3aed,#a855f7)"></div></div>';
+                html += '</div>';
+
+                html += '</div>'; // end grid
+
+                // ── Game panels (like SullyGnome StreamGameSummaryPanel) ──
+                const gameData = {};
+                for (const ts of chunkTimestamps) {
+                    const c = chunkData[ts];
+                    const g = c.game || 'Unknown';
+                    if (!gameData[g]) gameData[g] = { watchMins: 0, count: 0, sumViewers: 0, maxViewers: 0 };
+                    gameData[g].watchMins += c.watchTimeMins || 0;
+                    gameData[g].count++;
+                    gameData[g].sumViewers += c.viewers || 0;
+                    if ((c.viewers || 0) > gameData[g].maxViewers) gameData[g].maxViewers = c.viewers || 0;
+                }
+
+                if (Object.keys(gameData).length) {
+                    html += '<div style="padding:0 20px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">';
+                    for (const [g, gd] of Object.entries(gameData)) {
+                        const gAvg = Math.round(gd.sumViewers / gd.count);
+                        html += '<div style="padding:14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                        html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
+                        html += '<div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#a855f7,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:14px">🎮</div>';
+                        html += '<b style="font-size:14px">' + g + '</b></div>';
+                        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">';
+                        html += '<div><span class="muted">Средние:</span> <b style="color:#a855f7">' + gAvg + '</b></div>';
+                        html += '<div><span class="muted">Макс:</span> <b>' + gd.maxViewers + '</b></div>';
+                        html += '<div><span class="muted">Время:</span> <b>' + Math.floor(gd.watchMins / 60) + 'ч ' + (gd.watchMins % 60) + 'м</b></div>';
+                        html += '</div></div>';
+                    }
+                    html += '</div>';
+                }
+
+                // ── Chart ──
                 if (chunkTimestamps.length > 0) {
-                    html += '<p style="font-size:13px;font-weight:600;margin-bottom:10px">📊 Зрители</p>';
-                    html += '<div style="display:flex;gap:1px;align-items:flex-end;height:100px;margin-bottom:6px">';
-                    const barH = 90;
+                    html += '<div style="padding:0 20px 20px">';
+                    html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                    html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 Зрители по 15-минуткам</p>';
+                    html += '<div style="display:flex;gap:2px;align-items:flex-end;height:120px">';
+                    const barH = 110;
                     for (const ts of chunkTimestamps) {
                         const ch = chunkData[ts];
                         const h = Math.max(4, Math.round(ch.viewers / peakViewers * barH));
                         const color = ch.viewers > peakViewers * 0.7 ? '#a855f7' : ch.viewers > peakViewers * 0.3 ? '#7c3aed' : '#4ade80';
                         html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">';
-                        html += '<div title="' + ch.viewers + ' зр." style="width:100%;height:' + h + 'px;border-radius:3px 3px 0 0;background:' + color + ';min-width:6px;transition:height .3s"></div>';
+                        html += '<div title="' + ch.viewers + ' зр." style="width:100%;height:' + h + 'px;border-radius:3px 3px 0 0;background:' + color + ';min-width:4px;transition:height .3s"></div>';
                         html += '</div>';
                     }
                     html += '</div>';
-                    html += '<div style="display:flex;justify-content:space-between">';
+                    html += '<div style="display:flex;justify-content:space-between;margin-top:6px">';
                     html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
                     html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[chunkTimestamps.length - 1])).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}) + '</span>';
                     html += '</div>';
+                    html += '</div></div>';
                 }
 
-                // VOD list
+                // ── VOD list ──
                 if (vods.length > 0) {
-                    html += '<p style="font-size:13px;font-weight:600;margin:16px 0 10px">🎬 Записи стримов</p>';
+                    html += '<div style="padding:0 20px 20px">';
+                    html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+                    html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">🎬 Записи стримов (' + vods.length + ')</p>';
                     for (const vod of vods) {
                         const dur = (vod.duration || '').replace(/^PT/, '').replace(/H/, 'ч ').replace(/M/, 'м ').replace(/S/, 'с');
-                        html += '<div style="display:flex;gap:12px;padding:12px;border-radius:12px;background:rgba(255,255,255,.04);margin-bottom:8px;align-items:center">';
+                        html += '<div style="display:flex;gap:12px;padding:10px;border-radius:12px;background:rgba(255,255,255,.03);margin-bottom:6px;align-items:center">';
                         if (vod.thumbnail_url) {
                             const thumb = vod.thumbnail_url.indexOf('%') === -1 ? vod.thumbnail_url : vod.thumbnail_url.replace('{width}', '160').replace('{height}', '90');
-                            html += '<img src="' + thumb + '" style="width:80px;height:45px;border-radius:8px;object-fit:cover">';
+                            html += '<img src="' + thumb + '" style="width:72px;height:40px;border-radius:6px;object-fit:cover">';
                         }
                         html += '<div style="flex:1;min-width:0">';
-                        html += '<a href="' + (vod.url || '#') + '" target="_blank" style="color:white;font-weight:600;font-size:14px;text-decoration:none">' + (vod.title || '') + '</a>';
-                        html += '<div style="display:flex;gap:16px;margin-top:4px">';
-                        html += '<span class="muted" style="font-size:12px">⏱ ' + dur + '</span>';
-                        html += '<span class="muted" style="font-size:12px">👁 ' + (vod.view_count || 0) + '</span>';
-                        if (vod.game) html += '<span class="muted" style="font-size:12px">🎮 ' + vod.game + '</span>';
+                        html += '<a href="' + (vod.url || '#') + '" target="_blank" style="color:white;font-weight:600;font-size:13px;text-decoration:none">' + (vod.title || '') + '</a>';
+                        html += '<div style="display:flex;gap:12px;margin-top:3px">';
+                        html += '<span class="muted" style="font-size:11px">⏱ ' + dur + '</span>';
+                        html += '<span class="muted" style="font-size:11px">👁 ' + (vod.view_count || 0) + '</span>';
+                        if (vod.game) html += '<span class="muted" style="font-size:11px">🎮 ' + vod.game + '</span>';
                         html += '</div></div></div>';
                     }
+                    html += '</div></div>';
                 }
             } else {
-                html += '<p class="muted" style="text-align:center;padding:20px">Нет данных стримов за этот день</p>';
+                html += '<div style="padding:40px 20px;text-align:center"><p class="muted">Нет данных стримов за этот день</p></div>';
             }
 
             html += '</div>';
             detailDiv.innerHTML = html;
-
-            // Remove the old inline expand for this day if it exists
-            const oldDetail = document.getElementById('streamDayDetail_' + login + '_' + year + '-' + String(month).padStart(2, '0'));
-            if (oldDetail) oldDetail.innerHTML = '';
         } catch (e) {
             detailDiv.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
         }
