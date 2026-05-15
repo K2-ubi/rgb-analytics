@@ -2753,19 +2753,11 @@
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         try {
-            // Fetch ALL stream-chunks, filter by last 2 months
-            const now = new Date();
-            const currentMonth = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
-            const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const prevMonth = String(prevDate.getFullYear()) + '-' + String(prevDate.getMonth() + 1).padStart(2, '0');
-            const cutoffDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-            const cutoffStr = String(cutoffDate.getFullYear()) + '-' + String(cutoffDate.getMonth() + 1).padStart(2, '0');
             const allSnap = await db.ref('stream-chunks/' + login).once('value');
             const allVal = allSnap.val() || {};
-            const dayData = {};
-            let totalViewers = 0, totalSamples = 0, prevViewers = 0, prevSamples = 0;
+            const monthData = {};
+            let totalDays = 0, totalViewers = 0, totalSamples = 0, maxPeakOverall = 0;
             for (const dateStr of Object.keys(allVal)) {
-                if (dateStr < cutoffStr) continue;
                 let daySum = 0, dayCount = 0, dayPeak = 0;
                 for (const ts of Object.keys(allVal[dateStr])) {
                     const c = allVal[dateStr][ts];
@@ -2774,30 +2766,21 @@
                     dayCount++;
                     if ((c.peakViewers || v) > dayPeak) dayPeak = c.peakViewers || v;
                 }
-                if (dayCount) {
-                    dayData[dateStr] = { avg: Math.round(daySum / dayCount), peak: dayPeak, samples: dayCount };
-                    totalViewers += daySum;
-                    totalSamples += dayCount;
-                    if (!dateStr.startsWith(currentMonth) && dateStr.startsWith(prevMonth)) {
-                        prevViewers += daySum;
-                        prevSamples += dayCount;
-                    }
-                }
+                if (!dayCount) continue;
+                totalDays++;
+                totalViewers += daySum;
+                totalSamples += dayCount;
+                if (dayPeak > maxPeakOverall) maxPeakOverall = dayPeak;
+                const m = dateStr.slice(0, 7);
+                if (!monthData[m]) monthData[m] = { sum: 0, count: 0, peak: 0, days: 0 };
+                monthData[m].sum += daySum;
+                monthData[m].count += dayCount;
+                if (dayPeak > monthData[m].peak) monthData[m].peak = dayPeak;
+                monthData[m].days++;
             }
             const overallAvg = totalSamples ? Math.round(totalViewers / totalSamples) : 0;
-
-            // Previous month avg for trend
-            const prevAvg = prevSamples ? Math.round(prevViewers / prevSamples) : 0;
-            let trendHtml = '';
-            if (prevAvg > 0 && overallAvg > 0) {
-                const diff = ((overallAvg - prevAvg) / prevAvg * 100).toFixed(0);
-                const isUp = overallAvg >= prevAvg;
-                trendHtml = `<span style="color:${isUp ? '#4ade80' : '#ef4444'};font-size:14px;font-weight:600">${isUp ? '📈 +' : '📉 '}${diff}%</span>`;
-            }
-
-            // Sort days
-            const sortedDays = Object.keys(dayData).sort();
-            const maxAvg = Math.max(1, ...sortedDays.map(d => dayData[d].avg));
+            const sortedMonths = Object.keys(monthData).sort();
+            const maxAvg = Math.max(1, ...sortedMonths.map(m => Math.round(monthData[m].sum / monthData[m].count)));
 
             let html = '<div class="page-card" style="margin-top:24px">';
             html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
@@ -2805,53 +2788,55 @@
             html += '<button class="btn" onclick="renderAvgOnline(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄</button>';
             html += '</div>';
 
-            // Summary card
+            // Summary
             html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
-            html += '<div class="metric"><p>📅 Дней со стримами</p><strong style="font-size:22px">' + sortedDays.length + '</strong></div>';
-            html += '<div class="metric"><p>📈 Средний онлайн</p><strong style="font-size:22px;color:#a855f7">' + overallAvg + ' ' + trendHtml + '</strong></div>';
-            html += '<div class="metric"><p>🔥 Макс пик</p><strong style="font-size:22px;color:white">' + Math.max(1, ...sortedDays.map(d => dayData[d].peak)) + '</strong></div>';
+            html += '<div class="metric"><p>📅 Дней со стримами</p><strong style="font-size:22px">' + totalDays + '</strong></div>';
+            html += '<div class="metric"><p>📈 Средний онлайн</p><strong style="font-size:22px;color:#a855f7">' + overallAvg + '</strong></div>';
+            html += '<div class="metric"><p>🔥 Макс пик</p><strong style="font-size:22px;color:white">' + maxPeakOverall + '</strong></div>';
+            html += '<div class="metric"><p>📅 Месяцев</p><strong style="font-size:22px">' + sortedMonths.length + '</strong></div>';
             html += '</div>';
 
-            // Chart
-            if (sortedDays.length) {
+            // Chart by month
+            if (sortedMonths.length) {
                 html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
-                html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 По дням</p>';
-                html += '<div style="display:flex;gap:3px;align-items:flex-end;height:160px;overflow-x:auto;padding-bottom:8px">';
+                html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 По месяцам</p>';
+                html += '<div style="display:flex;gap:6px;align-items:flex-end;height:160px;overflow-x:auto;padding-bottom:8px">';
                 const barH = 145;
-                for (const dateStr of sortedDays) {
-                    const d = dayData[dateStr];
-                    const h = Math.max(3, Math.round(d.avg / maxAvg * barH));
-                    const label = dateStr.slice(5);
-                    const color = d.avg > overallAvg * 1.15 ? '#4ade80' : d.avg > overallAvg * 0.85 ? '#a855f7' : '#7c3aed';
+                for (const m of sortedMonths) {
+                    const d = monthData[m];
+                    const avg = Math.round(d.sum / d.count);
+                    const h = Math.max(3, Math.round(avg / maxAvg * barH));
+                    const color = avg > overallAvg * 1.15 ? '#4ade80' : avg > overallAvg * 0.85 ? '#a855f7' : '#7c3aed';
                     html += '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0;position:relative"';
                     html += ' onmouseover="this.querySelector(\'.bar-tip\').style.display=\'block\';this.querySelector(\'.bar\').style.opacity=\'.8\'"';
                     html += ' onmouseout="this.querySelector(\'.bar-tip\').style.display=\'none\';this.querySelector(\'.bar\').style.opacity=\'1\'"';
                     html += '>';
-                    html += '<div class="bar-tip" style="display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid rgba(168,85,247,.3);color:white;padding:4px 8px;border-radius:8px;font-size:10px;white-space:nowrap;z-index:10;margin-bottom:6px;pointer-events:none">' + label + ' · ср. ' + d.avg + ' · пик ' + d.peak + '</div>';
-                    html += '<div class="bar" style="width:28px;height:' + h + 'px;border-radius:4px 4px 0 0;background:' + color + ';transition:opacity .2s;cursor:pointer"></div>';
-                    html += '<span style="font-size:8px;color:var(--muted);writing-mode:vertical-lr;transform:rotate(180deg);margin-top:2px;height:20px;overflow:hidden">' + label + '</span>';
+                    html += '<div class="bar-tip" style="display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#1a1a2e;border:1px solid rgba(168,85,247,.3);color:white;padding:4px 8px;border-radius:8px;font-size:10px;white-space:nowrap;z-index:10;margin-bottom:6px;pointer-events:none">' + m + ' · ср. ' + avg + ' · пик ' + d.peak + ' · ' + d.days + ' дн.</div>';
+                    html += '<div class="bar" style="width:36px;height:' + h + 'px;border-radius:4px 4px 0 0;background:' + color + ';transition:opacity .2s;cursor:pointer"></div>';
+                    html += '<span style="font-size:9px;color:var(--muted);margin-top:2px">' + m.slice(5) + '</span>';
                     html += '</div>';
                 }
                 html += '</div>';
                 html += '<div style="display:flex;justify-content:space-between;margin-top:4px">';
-                html += '<span style="font-size:9px;color:var(--muted)">' + (sortedDays[0] || '') + '</span>';
-                html += '<span style="font-size:9px;color:var(--muted)">' + (sortedDays[sortedDays.length - 1] || '') + '</span>';
+                html += '<span style="font-size:9px;color:var(--muted)">' + (sortedMonths[0] || '') + '</span>';
+                html += '<span style="font-size:9px;color:var(--muted)">' + (sortedMonths[sortedMonths.length - 1] || '') + '</span>';
                 html += '</div>';
                 html += '</div>';
 
-                // Day list
-                html += '<div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">';
-                for (const dateStr of sortedDays) {
-                    const d = dayData[dateStr];
+                // Month grid
+                html += '<div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">';
+                for (const m of sortedMonths) {
+                    const d = monthData[m];
+                    const avg = Math.round(d.sum / d.count);
                     html += '<div style="padding:10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--border);text-align:center">';
-                    html += '<div style="font-size:12px;font-weight:600">' + dateStr.slice(5) + '</div>';
-                    html += '<div style="font-size:18px;color:#a855f7;margin-top:2px">' + d.avg + '</div>';
-                    html += '<div class="muted" style="font-size:10px">пик ' + d.peak + '</div>';
+                    html += '<div style="font-size:12px;font-weight:600">' + m + '</div>';
+                    html += '<div style="font-size:18px;color:#a855f7;margin-top:2px">' + avg + '</div>';
+                    html += '<div class="muted" style="font-size:10px">пик ' + d.peak + ' · ' + d.days + ' дн.</div>';
                     html += '</div>';
                 }
                 html += '</div>';
             } else {
-                html += '<div style="padding:40px 20px;text-align:center"><p class="muted">Нет данных за последние 2 месяца</p></div>';
+                html += '<div style="padding:40px 20px;text-align:center"><p class="muted">Нет данных</p></div>';
             }
 
             html += '</div>';
