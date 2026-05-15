@@ -21,7 +21,6 @@ export default {
         case '/api/status': return status(env);
         case '/api/chatters': return proxy(url, env, '/chat/chatters');
         case '/api/followers': return proxy(url, env, '/channels/followers');
-        case '/api/helix': return proxyHelix(url, env);
         default: return json({ error: 'not found' }, 404);
       }
     } catch (e) {
@@ -106,17 +105,6 @@ async function proxy(url, env, path) {
   const token = await getToken(env);
   const q = new URLSearchParams(url.search);
   const r = await fetch(TWITCH_API + path + '?' + q, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': CLIENT_ID },
-  });
-  return json(await r.json(), r.status);
-}
-
-async function proxyHelix(url, env) {
-  const token = await getToken(env);
-  const path = url.searchParams.get('path') || '';
-  const q = new URLSearchParams(url.search);
-  q.delete('path');
-  const r = await fetch(TWITCH_API + path + (q.toString() ? '?' + q : ''), {
     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': CLIENT_ID },
   });
   return json(await r.json(), r.status);
