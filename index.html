@@ -1609,9 +1609,7 @@
                 const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + fModId + '&first=1', { headers: fHdrs });
                 if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
                 _creatorFollowersCache[name] = followers;
-                const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
-                    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-                });
+                const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, { headers: fHdrs });
                 const stData = await stRes.json();
                 stream = stData.data && stData.data[0] ? stData.data[0] : null;
             }
@@ -2127,9 +2125,7 @@
             const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + fModId + '&first=1', { headers: fHdrs });
             if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
             _creatorFollowersCache[user.login] = followers;
-            const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
-                headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-            });
+            const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, { headers: fHdrs });
             const stData = await stRes.json();
             streamInfo = stData.data && stData.data[0] ? stData.data[0] : null;
         } catch (e) {}
@@ -2757,55 +2753,41 @@
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         try {
-            // Fetch last 2 months of stream-chunks
+            // Fetch ALL stream-chunks, filter by last 2 months
             const now = new Date();
-            const months = [];
-            for (let i = 0; i < 2; i++) {
-                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                months.push(String(d.getFullYear()) + '-' + String(d.getMonth() + 1).padStart(2, '0'));
-            }
-            const snaps = await Promise.all(months.map(m => db.ref('stream-chunks/' + login + '/' + m).once('value')));
+            const currentMonth = String(now.getFullYear()) + '-' + String(now.getMonth() + 1).padStart(2, '0');
+            const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const prevMonth = String(prevDate.getFullYear()) + '-' + String(prevDate.getMonth() + 1).padStart(2, '0');
+            const cutoffDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+            const cutoffStr = String(cutoffDate.getFullYear()) + '-' + String(cutoffDate.getMonth() + 1).padStart(2, '0');
+            const allSnap = await db.ref('stream-chunks/' + login).once('value');
+            const allVal = allSnap.val() || {};
             const dayData = {};
-            let totalViewers = 0, totalSamples = 0, csvStreams = 0, csvSum = 0;
-            for (const snap of snaps) {
-                const val = snap.val() || {};
-                for (const dateStr of Object.keys(val)) {
-                    let daySum = 0, dayCount = 0, dayPeak = 0;
-                    for (const ts of Object.keys(val[dateStr])) {
-                        const c = val[dateStr][ts];
-                        if (c.source === 'sullygnome-csv') {
-                            csvStreams++;
-                            csvSum += c.viewers || 0;
-                            daySum += c.viewers || 0;
-                            dayCount++;
-                            totalViewers += c.viewers || 0;
-                            totalSamples++;
-                            if ((c.peakViewers || c.viewers || 0) > dayPeak) dayPeak = c.peakViewers || c.viewers || 0;
-                        } else {
-                            daySum += c.viewers || 0;
-                            dayCount++;
-                            totalViewers += c.viewers || 0;
-                            totalSamples++;
-                            if ((c.viewers || 0) > dayPeak) dayPeak = c.viewers || 0;
-                        }
-                    }
-                    if (dayCount) {
-                        dayData[dateStr] = { avg: Math.round(daySum / dayCount), peak: dayPeak, samples: dayCount };
+            let totalViewers = 0, totalSamples = 0, prevViewers = 0, prevSamples = 0;
+            for (const dateStr of Object.keys(allVal)) {
+                if (dateStr < cutoffStr) continue;
+                let daySum = 0, dayCount = 0, dayPeak = 0;
+                for (const ts of Object.keys(allVal[dateStr])) {
+                    const c = allVal[dateStr][ts];
+                    const v = c.viewers || 0;
+                    daySum += v;
+                    dayCount++;
+                    if ((c.peakViewers || v) > dayPeak) dayPeak = c.peakViewers || v;
+                }
+                if (dayCount) {
+                    dayData[dateStr] = { avg: Math.round(daySum / dayCount), peak: dayPeak, samples: dayCount };
+                    totalViewers += daySum;
+                    totalSamples += dayCount;
+                    if (!dateStr.startsWith(currentMonth) && dateStr.startsWith(prevMonth)) {
+                        prevViewers += daySum;
+                        prevSamples += dayCount;
                     }
                 }
             }
             const overallAvg = totalSamples ? Math.round(totalViewers / totalSamples) : 0;
 
             // Previous month avg for trend
-            let prevSum = 0, prevCount = 0;
-            const prevVal = snaps[1]?.val() || {};
-            for (const dateStr of Object.keys(prevVal)) {
-                for (const ts of Object.keys(prevVal[dateStr])) {
-                    prevSum += prevVal[dateStr][ts].viewers || 0;
-                    prevCount++;
-                }
-            }
-            const prevAvg = prevCount ? Math.round(prevSum / prevCount) : 0;
+            const prevAvg = prevSamples ? Math.round(prevViewers / prevSamples) : 0;
             let trendHtml = '';
             if (prevAvg > 0 && overallAvg > 0) {
                 const diff = ((overallAvg - prevAvg) / prevAvg * 100).toFixed(0);
