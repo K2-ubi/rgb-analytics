@@ -173,24 +173,26 @@
     let currentOpenCreator = null;
     let currentViewerProfileId = null;
 
-    let _botHeaders = null;
-    let _botHeadersTime = 0;
+    let _botConfig = null;
+    let _botConfigTime = 0;
     const BOT_CACHE_TTL = 60000;
-    async function getBotHeaders() {
-        if (_botHeaders && Date.now() - _botHeadersTime < BOT_CACHE_TTL) return _botHeaders;
+    async function getBotConfig() {
+        if (_botConfig && Date.now() - _botConfigTime < BOT_CACHE_TTL) return _botConfig;
         try {
             const snap = await db.ref('config/bot').once('value');
-            const cfg = snap.val() || {};
-            if (cfg.token) {
-                _botHeaders = {
-                    'Authorization': 'Bearer ' + cfg.token,
-                    'Client-Id': cfg.clientId || TWITCH_CLIENT_ID
-                };
-                _botHeadersTime = Date.now();
-                return _botHeaders;
-            }
-        } catch (e) { console.warn('Bot config load error:', e); }
+            _botConfig = snap.val() || {};
+            _botConfigTime = Date.now();
+        } catch (e) { _botConfig = {}; }
+        return _botConfig;
+    }
+    async function getBotHeaders() {
+        const cfg = await getBotConfig();
+        if (cfg.token) return { 'Authorization': 'Bearer ' + cfg.token, 'Client-Id': cfg.clientId || TWITCH_CLIENT_ID };
         return null;
+    }
+    async function getBotWorkerUrl() {
+        const cfg = await getBotConfig();
+        return cfg.workerUrl || null;
     }
 
     let _ipCache = null;
@@ -530,18 +532,20 @@
             const modId = currentTwitchUser?.id;
             if (!token || !modId) return;
 
-            // Use bot token for moderator-scoped API, fallback to user token
-            const botHeaders = await getBotHeaders();
-            const chattersHeaders = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-
+            // Use Worker or bot token for moderator-scoped API
+            const workerUrl = await getBotWorkerUrl();
+            let chattersRes;
             try {
                 const now = Date.now();
-                const res = await fetch(
-                    'https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100',
-                    { headers: chattersHeaders }
-                );
-                if (!res.ok) return;
-                const data = await res.json();
+                if (workerUrl) {
+                    chattersRes = await fetch(workerUrl + '/api/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100');
+                } else {
+                    const botHeaders = await getBotHeaders();
+                    const hdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+                    chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100', { headers: hdrs });
+                }
+                if (!chattersRes.ok) return;
+                const data = await chattersRes.json();
                 const currentIds = new Set();
 
                 // Fetch user info for chatters (no mod scope needed)
@@ -810,21 +814,31 @@
             <div id="adminResult"></div>
 
             <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
-                <p class="muted" style="margin-bottom:12px">🤖 Бот для API (модерка/эдиторка)</p>
+                <p class="muted" style="margin-bottom:12px">🤖 Backend-воркер (автообновление токена)</p>
+                <div style="display:grid;gap:12px">
+                    <input type="url" id="botWorkerUrlInput" placeholder="URL воркера, например https://rgb-bot.xxx.workers.dev" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;font-family:monospace">
+                    <div style="display:flex;gap:10px">
+                        <button class="btn primary" onclick="saveBotConfig()">💾 Сохранить</button>
+                        <button class="btn" onclick="loadBotConfig()">🔄 Загрузить</button>
+                        <button class="btn" onclick="window.open(document.getElementById('botWorkerUrlInput').value + '/api/auth', '_blank')" id="botAuthBtn">🔑 Авторизовать бота</button>
+                        <button class="btn" onclick="checkBotStatus()">🧪 Статус</button>
+                        <button class="btn" onclick="deleteBotConfig()" style="border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#fca5a5">🗑 Сбросить</button>
+                    </div>
+                    <p class="muted" style="font-size:12px;line-height:1.5">1. Заполни URL воркера → Сохранить<br>2. Нажми <b>Авторизовать бота</b> — откроется Twitch. Войди как бот-аккаунт, нажми Авторизовать<br>3. Нажми <b>Статус</b> — должен показать логин бота и сколько живет токен</p>
+                    <div id="botConfigStatus" class="muted" style="font-size:13px"></div>
+                </div>
+            </div>
+
+            <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border);display:none" id="botTokenSection">
+                <p class="muted" style="margin-bottom:12px">🔑 Токен напрямую (если без воркера)</p>
                 <div style="display:grid;gap:12px">
                     <input type="password" id="botTokenInput" placeholder="Access Token бота" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;font-family:monospace">
-                    <input type="text" id="botClientIdInput" placeholder="Client ID бота (оставь пустым — будет как у всех)" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+                    <input type="text" id="botClientIdInput" placeholder="Client ID (оставь пустым — будет как у всех)" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
                     <div style="display:flex;gap:10px">
-                        <button class="btn primary" onclick="saveBotConfig()">💾 Сохранить бота</button>
-                        <button class="btn" onclick="loadBotConfig()">🔄 Загрузить</button>
-                        <button class="btn" onclick="testBotToken()">🧪 Проверить</button>
-                        <button class="btn" onclick="deleteBotConfig()" style="border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#fca5a5">🗑 Удалить</button>
+                        <button class="btn" onclick="saveBotTokenDirect()">💾 Сохранить токен</button>
+                        <button class="btn" onclick="testBotToken()">🧪 Проверить токен</button>
                     </div>
-                    <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">
-                        <button class="btn" onclick="startBotAuth()" style="border-color:rgba(168,85,247,.4);background:rgba(168,85,247,.12)">🤖 Получить токен бота</button>
-                        <p class="muted" style="font-size:12px;max-width:400px;line-height:1.5">Нажми, откроется Twitch. Войди как аккаунт-бот, нажми "Авторизовать" — токен сам подставится в поле выше</p>
-                    </div>
-                    <div id="botConfigStatus" class="muted" style="font-size:13px"></div>
+                    <p class="muted" style="font-size:12px">Используй если нет Cloudflare Worker. Токен живет 4 часа, надо обновлять вручную.</p>
                 </div>
             </div>
 
@@ -843,9 +857,11 @@
         try {
             const snap = await db.ref('config/bot').once('value');
             const cfg = snap.val() || {};
+            document.getElementById('botWorkerUrlInput').value = cfg.workerUrl || '';
             document.getElementById('botTokenInput').value = cfg.token || '';
             document.getElementById('botClientIdInput').value = cfg.clientId || '';
-            status.innerHTML = cfg.token ? '✅ Бот настроен' : '🟡 Бот не настроен';
+            const via = cfg.workerUrl ? 'воркер' : cfg.token ? 'токен' : 'не настроен';
+            status.innerHTML = cfg.workerUrl ? '✅ Воркер: ' + cfg.workerUrl : (cfg.token ? '🟡 Токен (без воркера)' : '🟡 Бот не настроен');
         } catch (e) {
             status.innerHTML = '❌ Ошибка загрузки';
         }
@@ -853,54 +869,62 @@
 
     async function saveBotConfig() {
         const status = document.getElementById('botConfigStatus');
+        const workerUrl = document.getElementById('botWorkerUrlInput').value.trim();
+        if (!workerUrl) { status.innerHTML = '❌ Введи URL воркера'; return; }
+        try {
+            await db.ref('config/bot').update({ workerUrl });
+            _botConfig = null;
+            status.innerHTML = '✅ URL воркера сохранен: ' + workerUrl;
+        } catch (e) {
+            status.innerHTML = '❌ Ошибка: ' + e.message;
+        }
+    }
+
+    async function saveBotTokenDirect() {
+        const status = document.getElementById('botConfigStatus');
         const token = document.getElementById('botTokenInput').value.trim();
         const clientId = document.getElementById('botClientIdInput').value.trim();
         if (!token) { status.innerHTML = '❌ Введи токен'; return; }
         try {
-            await db.ref('config/bot').set({ token, clientId: clientId || TWITCH_CLIENT_ID });
-            _botHeaders = null;
-            status.innerHTML = '✅ Бот сохранен. Токен:' + token.slice(0, 8) + '…';
+            await db.ref('config/bot').update({ token, clientId: clientId || TWITCH_CLIENT_ID, workerUrl: '' });
+            _botConfig = null;
+            status.innerHTML = '✅ Токен сохранен: ' + token.slice(0, 8) + '…';
         } catch (e) {
             status.innerHTML = '❌ Ошибка: ' + e.message;
         }
-    }
-
-    function startBotAuth() {
-        sessionStorage.setItem('botAuth', '1');
-        const redirect = encodeURIComponent(window.location.href.split('#')[0]);
-        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:chatters+moderator:read:followers&force_verify=true';
-    }
-
-    async function handleBotAuthRedirect() {
-        const hash = window.location.hash.substring(1);
-        if (!hash || !sessionStorage.getItem('botAuth')) return false;
-        const params = new URLSearchParams(hash);
-        const token = params.get('access_token');
-        if (!token) { sessionStorage.removeItem('botAuth'); return false; }
-        sessionStorage.removeItem('botAuth');
-        try {
-            await db.ref('config/bot').set({ token, clientId: TWITCH_CLIENT_ID });
-            _botHeaders = null;
-            alert('✅ Токен бота сохранен! Страница перезагрузится.');
-            window.location.href = window.location.href.split('#')[0];
-        } catch (e) {
-            alert('❌ Ошибка сохранения токена: ' + e.message);
-            window.location.href = window.location.href.split('#')[0];
-        }
-        return true;
     }
 
     async function deleteBotConfig() {
         const status = document.getElementById('botConfigStatus');
-        if (!confirm('Удалить токен бота? API запросы будут ходить через твой токен.')) return;
+        if (!confirm('Сбросить настройки бота? Все API запросы пойдут через твой токен.')) return;
         try {
             await db.ref('config/bot').remove();
-            _botHeaders = null;
+            _botConfig = null;
+            document.getElementById('botWorkerUrlInput').value = '';
             document.getElementById('botTokenInput').value = '';
             document.getElementById('botClientIdInput').value = '';
-            status.innerHTML = '🗑 Токен бота удален';
+            status.innerHTML = '🗑 Настройки сброшены';
         } catch (e) {
             status.innerHTML = '❌ Ошибка: ' + e.message;
+        }
+    }
+
+    async function checkBotStatus() {
+        const status = document.getElementById('botConfigStatus');
+        const workerUrl = document.getElementById('botWorkerUrlInput').value.trim();
+        if (!workerUrl) { status.innerHTML = '❌ Сначала сохрани URL воркера'; return; }
+        try {
+            const res = await fetch(workerUrl + '/api/status');
+            if (!res.ok) { status.innerHTML = '❌ Воркер недоступен (' + res.status + ')'; return; }
+            const d = await res.json();
+            if (d.configured) {
+                const left = d.expires_in > 3600 ? Math.floor(d.expires_in / 3600) + 'ч' : Math.floor(d.expires_in / 60) + 'мин';
+                status.innerHTML = '✅ Бот: <b>' + (d.bot_display || d.bot_login) + '</b> | токен живет ' + left + ' | автообновление каждые 3ч';
+            } else {
+                status.innerHTML = '🟡 Воркер работает, но бот не авторизован. Нажми "Авторизовать бота"';
+            }
+        } catch (e) {
+            status.innerHTML = '❌ Ошибка соединения: ' + e.message;
         }
     }
 
@@ -1238,16 +1262,19 @@
                     });
                 }
 
-                // Fetch followers for all members in parallel (use bot token for moderator scope)
+                // Fetch followers for all members in parallel (use Worker / bot token)
                 const modId = currentTwitchUser?.id || '';
-                const followerHeaders = (await getBotHeaders()) || (token ? { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } : null);
-                if (followerHeaders && modId) {
+                const fWorkerUrl = await getBotWorkerUrl();
+                if (modId) {
                     await Promise.all(members.filter(m => m.twitchId).map(async (m) => {
                         try {
-                            const fRes = await fetch(
-                                'https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1',
-                                { headers: followerHeaders }
-                            );
+                            let fRes;
+                            if (fWorkerUrl) {
+                                fRes = await fetch(fWorkerUrl + '/api/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1');
+                            } else {
+                                const fHdrs = (await getBotHeaders()) || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+                                fRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1', { headers: fHdrs });
+                            }
                             if (fRes.ok) { const fData = await fRes.json(); m.followers = fData.total || 0; }
                         } catch (e) {}
                     }));
@@ -1349,6 +1376,7 @@
         currentOpenCreator = name;
         const token = localStorage.getItem('twitchAccessToken');
         const botHeaders = await getBotHeaders();
+        const fWorkerUrl = await getBotWorkerUrl();
         let user, stream, followers = 0;
         try {
             const res = await fetch('https://api.twitch.tv/helix/users?login=' + name, {
@@ -1358,8 +1386,13 @@
             user = data.data[0];
             if (user) {
                 const modId = currentTwitchUser?.id || user.id;
-                const fHdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-                const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + modId + '&first=1', { headers: fHdrs });
+                let flRes;
+                if (fWorkerUrl) {
+                    flRes = await fetch(fWorkerUrl + '/api/followers?broadcaster_id=' + user.id + '&moderator_id=' + modId + '&first=1');
+                } else {
+                    const fHdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+                    flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + modId + '&first=1', { headers: fHdrs });
+                }
                 if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
                 const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
                     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
@@ -1855,11 +1888,17 @@
         if (!user) return;
         const token = localStorage.getItem('twitchAccessToken');
         const botHeaders = await getBotHeaders();
+        const fWorkerUrl = await getBotWorkerUrl();
         let followers = 0;
         let streamInfo = null;
         try {
-            const fHdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-            const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + user.id + '&first=1', { headers: fHdrs });
+            let flRes;
+            if (fWorkerUrl) {
+                flRes = await fetch(fWorkerUrl + '/api/followers?broadcaster_id=' + user.id + '&moderator_id=' + user.id + '&first=1');
+            } else {
+                const fHdrs = botHeaders || { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+                flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + user.id + '&first=1', { headers: fHdrs });
+            }
             if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
             const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, {
                 headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
