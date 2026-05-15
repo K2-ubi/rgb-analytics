@@ -607,24 +607,19 @@
             let chattersRes;
             try {
                 const now = Date.now();
+                // 1) Try bot as moderator
                 if (botToken && botToken.id) {
                     chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + botToken.id + '&first=100', {
                         headers: { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID }
                     });
                 }
-                if (!chattersRes || !chattersRes.ok) {
-                    if (botToken && !botToken.id) {
-                        chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100', {
-                            headers: { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID }
-                        });
-                    }
-                    if (!chattersRes || !chattersRes.ok) {
-                        chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + modId + '&first=100', {
-                            headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
-                        });
-                    }
+                // 2) Fallback: viewer is the broadcaster themselves → can see chatters
+                if ((!chattersRes || !chattersRes.ok) && modId === id) {
+                    chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + id + '&first=100', {
+                        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+                    });
                 }
-                if (!chattersRes.ok) return;
+                if (!chattersRes || !chattersRes.ok) return;
                 const data = await chattersRes.json();
                 const currentIds = new Set();
 
@@ -1692,8 +1687,8 @@
                             <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -1715,8 +1710,8 @@
                             <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -2206,8 +2201,8 @@
                             <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -2229,8 +2224,8 @@
                             <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12);color:#000">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -2375,8 +2370,8 @@
             html += '</div>';
 
             // Save to Firebase viewer-history + all-viewers
-            const chLogin = found[0].member.login;
-            const game = found[0].member.gameName || '';
+            const chLogin = found[0]?.member?.login || '';
+            const game = found[0]?.member?.gameName || '';
             try {
                 await db.ref('viewer-history/' + chLogin + '/' + user.id).update({
                     login: user.login,
