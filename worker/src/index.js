@@ -126,6 +126,7 @@ async function botInfo(env) {
   const token = await getToken(env);
   return json({
     token,
+    client_id: CLIENT_ID,
     login: await env.KV.get('bot_login'),
     display: await env.KV.get('bot_display'),
     id: await env.KV.get('bot_id'),
