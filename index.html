@@ -118,6 +118,7 @@
             <button data-page="me">👤 Я</button>
             <button data-page="squad" id="squadNavBtn" class="hidden">👥 Мой сквад</button>
             <button data-page="viewers">👁 Зрители</button>
+            <button data-page="checkuser">🔍 Проверить</button>
             <button data-page="watching">📺 Что смотрят</button>
             <button data-page="similar">🔍 Похожий контент</button>
         </nav>
@@ -130,6 +131,7 @@
         <section id="squadPage" class="hidden fade"></section>
         <section id="creatorPage" class="hidden fade"></section>
         <section id="viewersPage" class="hidden fade"></section>
+        <section id="checkUserPage" class="hidden fade"></section>
         <section id="infoPage" class="hidden fade"></section>
     </main>
 </div>
@@ -1143,7 +1145,7 @@
             ]
         }
     };
-    const pages = ['homePage', 'squadPage', 'creatorPage', 'viewersPage', 'infoPage'];
+    const pages = ['homePage', 'squadPage', 'creatorPage', 'viewersPage', 'checkUserPage', 'infoPage'];
     const allMembers = [...squads.main.members, ...squads.academy.members];
 
     function show(id) {
@@ -1974,6 +1976,153 @@
         }
     }
 
+    async function renderCheckUser() {
+        viewerTracker.stop();
+        activeNav('checkuser');
+        const [members] = await Promise.all([loadTwitchUsers()]);
+        const allMembers = members.filter(m => m.roles && (m.roles.squad || m.roles.academy));
+
+        document.getElementById('checkUserPage').innerHTML = `
+        <div class="page-card">
+            <h1>🔍 Проверить пользователя</h1>
+            <p class="muted" style="margin-top:6px">Введи логин Twitch — проверим, где он сейчас сидит в чатах RGB</p>
+            <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap">
+                <input type="text" id="checkUserInput" placeholder="Логин пользователя..."
+                    onkeydown="if(event.key==='Enter') runCheckUser()"
+                    style="flex:1;min-width:200px;padding:12px 16px;border-radius:14px;border:1px solid var(--border);background:var(--panel);color:white;font-size:15px">
+                <button class="btn primary" onclick="runCheckUser()">🔍 Проверить</button>
+            </div>
+            <div id="checkUserResult" style="margin-top:24px"></div>
+        </div>`;
+        show('checkUserPage');
+        setTimeout(() => document.getElementById('checkUserInput')?.focus(), 100);
+    }
+
+    async function runCheckUser() {
+        const input = document.getElementById('checkUserInput');
+        const result = document.getElementById('checkUserResult');
+        const login = input?.value.trim().toLowerCase();
+        if (!login) { result.innerHTML = '<p class="muted">Введи логин</p>'; return; }
+
+        result.innerHTML = '<p class="muted">🔍 Ищем пользователя <b>' + login + '</b>…</p>';
+
+        try {
+            const uRes = await twitchApi('/users', 'login=' + login);
+            if (!uRes.ok) { result.innerHTML = '<p style="color:#ef4444">❌ Пользователь не найден в Twitch</p>'; return; }
+            const uData = await uRes.json();
+            const user = uData.data?.[0];
+            if (!user) { result.innerHTML = '<p style="color:#ef4444">❌ Пользователь не найден</p>'; return; }
+
+            const members = (await loadTwitchUsers()).filter(m => m.roles && (m.roles.squad || m.roles.academy));
+            const modId = currentTwitchUser?.id || user.id;
+            const onlineMembers = members.filter(m => m.isLive && m.twitchId);
+
+            result.innerHTML = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:18px;border-radius:18px;border:1px solid var(--border);background:var(--panel)">
+                ${user.profile_image_url ? '<img src="' + user.profile_image_url + '" style="width:52px;height:52px;border-radius:50%;object-fit:cover">' : '<div class="avatar" style="width:52px;height:52px"></div>'}
+                <div><b style="font-size:18px">${user.display_name}</b><p class="muted">@${user.login} &bull; создан ${new Date(user.created_at).toLocaleDateString('ru-RU')}</p></div>
+            </div>`;
+
+            if (!onlineMembers.length) {
+                result.innerHTML += '<p class="muted">Нет участников RGB в эфире сейчас</p>';
+                show('checkUserPage');
+                return;
+            }
+
+            result.innerHTML += '<p class="muted">Проверяю чаты <b>' + onlineMembers.length + '</b> стримеров в эфире…</p>';
+
+            const found = [];
+            for (const m of onlineMembers) {
+                try {
+                    const cRes = await twitchApi('/chat/chatters', 'broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1000');
+                    if (!cRes.ok) continue;
+                    const cData = await cRes.json();
+                    const chatters = cData.data || [];
+                    const match = chatters.find(c => c.user_id === user.id || c.user_login?.toLowerCase() === login);
+                    if (match) {
+                        found.push({ member: m, chatter: match });
+                    }
+                } catch (e) {}
+            }
+
+            if (found.length === 0) {
+                result.innerHTML = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:18px;border-radius:18px;border:1px solid var(--border);background:var(--panel)">
+                    ${user.profile_image_url ? '<img src="' + user.profile_image_url + '" style="width:52px;height:52px;border-radius:50%;object-fit:cover">' : '<div class="avatar" style="width:52px;height:52px"></div>'}
+                    <div><b style="font-size:18px">${user.display_name}</b><p class="muted">@${user.login}</p></div>
+                </div>
+                <div style="padding:24px;text-align:center;border-radius:18px;border:1px solid var(--border);background:var(--panel2)">
+                    <p style="font-size:24px;margin-bottom:8px">👀</p>
+                    <p class="muted">Не найден в чатах RGB Network ❌</p>
+                    <p class="muted" style="font-size:13px;margin-top:4px">Возможно, не сидит в чатах участников или все стримеры офлайн</p>
+                </div>`;
+                show('checkUserPage');
+                return;
+            }
+
+            let html = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:18px;border-radius:18px;border:1px solid var(--border);background:var(--panel)">
+                ${user.profile_image_url ? '<img src="' + user.profile_image_url + '" style="width:52px;height:52px;border-radius:50%;object-fit:cover">' : '<div class="avatar" style="width:52px;height:52px"></div>'}
+                <div><b style="font-size:18px">${user.display_name}</b><p class="muted">@${user.login} &bull; найден в ${found.length} ${found.length === 1 ? 'канале' : 'каналах'}</p></div>
+            </div>
+            <div style="display:grid;gap:12px">`;
+
+            const now = Date.now();
+            const updates = {};
+            const chUpdates = {};
+
+            for (const f of found) {
+                const chLogin = f.member.login;
+                const chDisplay = f.member.displayName;
+                const game = f.member.gameName || '—';
+                const viewers = f.member.viewers || 0;
+
+                html += `<div style="padding:18px;border-radius:18px;border:1px solid rgba(168,85,247,.25);background:rgba(168,85,247,.08);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+                    <div><b>${chDisplay}</b><p class="muted">🎮 ${game} &bull; 👁 ${viewers} зр.</p></div>
+                    <span class="tag" style="color:var(--green)">● LIVE</span>
+                </div>`;
+
+                chUpdates[chLogin] = {
+                    lastSeen: now,
+                    game: game || '',
+                    viewers: viewers || 0
+                };
+            }
+
+            html += '</div>';
+
+            // Save to Firebase viewer-history + all-viewers
+            const chLogin = found[0].member.login;
+            const game = found[0].member.gameName || '';
+            try {
+                await db.ref('viewer-history/' + chLogin + '/' + user.id).update({
+                    login: user.login,
+                    displayName: user.display_name,
+                    profileImageUrl: user.profile_image_url || '',
+                    createdAt: user.created_at || '',
+                    description: user.description || '',
+                    firstSeen: now,
+                    lastSeen: now
+                });
+                await db.ref('all-viewers/' + user.id).update({
+                    login: user.login,
+                    displayName: user.display_name,
+                    profileImageUrl: user.profile_image_url || '',
+                    createdAt: user.created_at || '',
+                    description: user.description || '',
+                    firstSeen: now,
+                    lastSeen: now,
+                    channels: chUpdates
+                });
+                html += '<p style="color:var(--green);margin-top:16px;font-size:14px">✅ Добавлен в статистику</p>';
+            } catch (e) {
+                html += '<p class="muted" style="margin-top:16px;font-size:13px">⚠️ Не удалось сохранить в статистику</p>';
+            }
+
+            result.innerHTML = html;
+        } catch (e) {
+            result.innerHTML = '<p style="color:#ef4444">❌ Ошибка: ' + e.message + '</p>';
+        }
+        show('checkUserPage');
+    }
+
     function getMySquadGroup() {
         if (currentUserRoles?.squad) return 'squad';
         if (currentUserRoles?.academy) return 'academy';
@@ -2000,6 +2149,7 @@
             else renderHome();
         }
         else if (b.dataset.page === 'viewers') renderViewersPage();
+        else if (b.dataset.page === 'checkuser') renderCheckUser();
         else renderInfo(b.dataset.page);
     }));
     window.addEventListener('resize', drawChart);
