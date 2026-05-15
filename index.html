@@ -113,12 +113,13 @@
 <div class="app" id="app">
     <aside class="sidebar">
         <div class="brand"><div class="logo"></div><div><h1>RGB Analytics</h1><p>Creator Network</p></div></div>
-        <nav class="nav">
-            <button class="active" data-page="me">Я</button>
-            <button data-page="squad">Мой сквад</button>
-            <button data-page="viewers">Зрители которые смотрят</button>
-            <button data-page="watching">Что смотрят</button>
-            <button data-page="similar">Похожий контент</button>
+        <nav class="nav" id="mainNav">
+            <button class="active" data-page="home">🏠 Главная</button>
+            <button data-page="me">👤 Я</button>
+            <button data-page="squad" id="squadNavBtn" class="hidden">👥 Мой сквад</button>
+            <button data-page="viewers">👁 Зрители</button>
+            <button data-page="watching">📺 Что смотрят</button>
+            <button data-page="similar">🔍 Похожий контент</button>
         </nav>
         <div class="side-card"><p class="muted">Network Creators</p><strong>6</strong><p class="muted">RGB-Squad + Academy</p></div>
         <button onClick="logout()" style="margin-top:20px;width:100%;padding:14px;border-radius:16px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#fca5a5;font-weight:700;transition:.18s" onmouseover="this.style.background='rgba(239,68,68,.18)'" onmouseout="this.style.background='rgba(239,68,68,.08)'">Выйти</button>
@@ -274,6 +275,7 @@
         if (p) p.remove();
         const b = document.getElementById('adminNavBtn');
         if (b) b.remove();
+        updateSquadNavButton();
         window.location.hash = '';
     }
 
@@ -397,6 +399,7 @@
                 renderSidebarUser();
                 renderHome();
                 renderAdminButton();
+                updateSquadNavButton();
             }
 
             // Full check in background: verify token + fetch fresh data
@@ -407,6 +410,7 @@
                 await renderHome();
                 renderAdminButton();
                 renderSidebarUser();
+                updateSquadNavButton();
             } else if (!restoreSession() || !hasToken) {
                 app.classList.remove('authorized');
                 authBlock.style.display = 'flex';
@@ -1953,13 +1957,31 @@
         }
     }
 
+    function getMySquadGroup() {
+        if (currentUserRoles?.squad) return 'squad';
+        if (currentUserRoles?.academy) return 'academy';
+        return null;
+    }
+
+    function updateSquadNavButton() {
+        const btn = document.getElementById('squadNavBtn');
+        if (!btn) return;
+        const group = getMySquadGroup();
+        btn.classList.toggle('hidden', !group);
+    }
+
     document.querySelectorAll('.nav button').forEach(b => b.addEventListener('click', () => {
         viewerTracker.stop();
         currentViewerProfileId = null;
         currentOpenCreator = null;
         activeNav(b.dataset.page);
-        if (b.dataset.page === 'me') renderMyProfile();
-        else if (b.dataset.page === 'squad') renderHome();
+        if (b.dataset.page === 'home') renderHome();
+        else if (b.dataset.page === 'me') renderMyProfile();
+        else if (b.dataset.page === 'squad') {
+            const group = getMySquadGroup();
+            if (group) openSquad(group);
+            else renderHome();
+        }
         else if (b.dataset.page === 'viewers') renderViewersPage();
         else renderInfo(b.dataset.page);
     }));
