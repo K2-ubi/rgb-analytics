@@ -113,6 +113,12 @@
         .month-nav h3 { font-size:20px; }
         .month-nav button { padding:8px 14px; border-radius:12px; border:1px solid var(--border); background:var(--panel); color:white; font-size:14px; cursor:pointer; transition:.2s; }
         .month-nav button:hover { background:rgba(168,85,247,.2); border-color:rgba(168,85,247,.35); }
+        .modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px; }
+        .modal-box { background:#0d0d12;border:1px solid var(--border);border-radius:24px;padding:28px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto; }
+        .modal-box h2 { font-size:20px;margin-bottom:6px; }
+        .modal-box textarea { width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;font:inherit;resize:vertical;min-height:80px; }
+        .modal-box input[type=file] { width:100%;padding:10px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:13px; }
+        .device-info { font-size:11px;color:var(--muted);padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid var(--border);max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.5; }
         @media(max-width:1150px){ .app{grid-template-columns:1fr}.sidebar{position:relative;height:auto}.hero-inner,.home-grid{grid-template-columns:1fr}.top-grid{grid-template-columns:repeat(2,1fr)}.span-8,.span-4,.span-6{grid-column:span 12} }
         @media(max-width:760px){ .main{padding:20px}.top-grid{grid-template-columns:1fr}.analytics-grid{grid-template-columns:1fr}.span-8,.span-4,.span-6{grid-column:auto}.dash-head,.weekly-head{flex-direction:column;align-items:flex-start}.metric-grid{grid-template-columns:repeat(2,1fr)!important} }
     </style>
@@ -131,7 +137,8 @@
             <button data-page="similar">🔍 Похожий контент</button>
         </nav>
         <div class="side-card"><p class="muted">Network Creators</p><strong>6</strong><p class="muted">RGB-Squad + Academy</p></div>
-        <button onClick="logout()" style="margin-top:20px;width:100%;padding:14px;border-radius:16px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#fca5a5;font-weight:700;transition:.18s" onmouseover="this.style.background='rgba(239,68,68,.18)'" onmouseout="this.style.background='rgba(239,68,68,.08)'">Выйти</button>
+        <button onclick="showBugReport()" style="margin-top:12px;width:100%;padding:12px;border-radius:16px;border:1px solid rgba(250,204,21,.15);background:rgba(250,204,21,.06);color:#fde047;font-size:13px;transition:.18s" onmouseover="this.style.background='rgba(250,204,21,.14)'" onmouseout="this.style.background='rgba(250,204,21,.06)'">🐛 Сообщить об ошибке</button>
+        <button onClick="logout()" style="margin-top:12px;width:100%;padding:14px;border-radius:16px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#fca5a5;font-weight:700;transition:.18s" onmouseover="this.style.background='rgba(239,68,68,.18)'" onmouseout="this.style.background='rgba(239,68,68,.08)'">Выйти</button>
     </aside>
 
     <main class="main">
@@ -144,6 +151,32 @@
     </main>
 </div>
 
+
+<div id="bugReportOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeBugReport()">
+    <div class="modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h2>🐛 Сообщить об ошибке</h2>
+            <button onclick="closeBugReport()" style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.06);font-size:18px">✕</button>
+        </div>
+        <p class="muted" style="font-size:13px;margin-bottom:16px">Опиши проблему — мы получим уведомление и исправим</p>
+        <div style="display:grid;gap:12px">
+            <textarea id="bugDescription" placeholder="Что пошло не так? Опиши подробнее..." style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;font:inherit;resize:vertical;min-height:100px"></textarea>
+            <div>
+                <p class="muted" style="font-size:12px;margin-bottom:6px">📷 Скриншот (не обязательно)</p>
+                <input type="file" id="bugScreenshot" accept="image/*" style="width:100%;padding:10px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:13px">
+            </div>
+            <div>
+                <p class="muted" style="font-size:12px;margin-bottom:6px">💻 Информация об устройстве</p>
+                <div class="device-info" id="bugDeviceInfo"></div>
+            </div>
+            <div style="display:flex;gap:10px">
+                <button class="btn primary" onclick="submitBugReport()" id="bugSubmitBtn" style="flex:1">📤 Отправить</button>
+                <button class="btn" onclick="closeBugReport()">Отмена</button>
+            </div>
+            <div id="bugReportStatus" class="muted" style="font-size:13px;text-align:center"></div>
+        </div>
+    </div>
+</div>
 
 <div id="authBlock" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 20px; padding: 20px;">
     <div class="logo" style="width: 80px; height: 80px;"></div>
@@ -173,7 +206,16 @@
 <script>
     const TWITCH_CLIENT_ID = 'a26lg52682u7ja24bam0p8lnahs7lg';
     const TG_BOT_TOKEN = '8708472197:AAGqoPzMM8tL5cadNPj-z7DPIEEBEXxXXTQ';
-    const TG_CHAT_IDS = ['8240197891', '1212294771'];
+    let _tgChatIds = [];
+    async function getTgChatIds() {
+        if (_tgChatIds.length) return _tgChatIds;
+        try {
+            const snap = await db.ref('config/tg-chat-id').once('value');
+            const raw = snap.val() || '';
+            _tgChatIds = raw.split(/[\s,;]+/).filter(Boolean);
+            return _tgChatIds;
+        } catch { return []; }
+    }
 
     let currentTwitchUser = null;
     let currentUserRoles = {};
@@ -910,6 +952,20 @@
             </div>
 
             <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+                <p class="muted" style="margin-bottom:12px">🤖 Telegram для баг-репортов</p>
+                <div style="display:grid;gap:12px">
+                    <input type="text" id="tgChatIdInput" placeholder="Telegram Chat ID (несколько через запятую: 123,456)" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;font-family:monospace">
+                    <div style="display:flex;gap:10px">
+                        <button class="btn primary" onclick="saveTgConfig()">💾 Сохранить</button>
+                        <button class="btn" onclick="loadTgConfig()">🔄 Загрузить</button>
+                        <button class="btn" onclick="testTgBot()">🧪 Тест</button>
+                    </div>
+                    <p class="muted" style="font-size:12px">Укажи Telegram Chat ID, куда будут приходить баг-репорты. Можно несколько через запятую. Чтобы узнать свой ID — напиши <b>@userinfobot</b> в Telegram.</p>
+                    <div id="tgConfigStatus" class="muted" style="font-size:13px"></div>
+                </div>
+            </div>
+
+            <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
                 <p class="muted" style="margin-bottom:12px">📥 Импорт CSV с SullyGnome</p>
                 <div style="display:grid;gap:12px">
                     <input type="text" id="sgLoginInput" placeholder="Twitch логин (например k2gemer)" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
@@ -1636,8 +1692,8 @@
                             <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -1659,8 +1715,8 @@
                             <div class="content-item"><span>Роль</span><b>${roleStr}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${name}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -2150,8 +2206,8 @@
                             <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -2173,8 +2229,8 @@
                             <div class="content-item"><span>ID</span><b style="font-size:12px">${user.id}</b></div>
                             <div class="content-item"><span>Качество ауд.</span><b style="color:${quality.color}">${quality.label}</b></div>
                             <div style="display:flex;gap:6px;margin-top:10px">
-                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📈 TwitchTracker</a>
-                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none">📊 SullyGnome</a>
+                                <a href="https://twitchtracker.com/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📈 TwitchTracker</a>
+                                <a href="https://sullygnome.com/channel/${user.login}" target="_blank" class="btn" style="padding:6px 10px;font-size:11px;text-decoration:none;border-color:rgba(56,189,248,.25);background:rgba(56,189,248,.08)">📊 SullyGnome</a>
                             </div>
                         </section>
                     </div>
@@ -3142,6 +3198,181 @@
         // Scroll back to calendar
         const calContainer = document.querySelector('[id^="streamCalendarContainer_"]');
         if (calContainer) calContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // ── Bug Report ──
+    function collectDeviceInfo() {
+        const sc = screen;
+        const ua = navigator.userAgent;
+        const lang = navigator.language || '';
+        const langs = navigator.languages ? navigator.languages.join(',') : lang;
+        const plat = navigator.platform || '';
+        const cpu = navigator.hardwareConcurrency || 'N/A';
+        const touch = navigator.maxTouchPoints || 0;
+        const cookie = navigator.cookieEnabled;
+        const orient = screen.orientation ? screen.orientation.type : 'N/A';
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'N/A';
+        const dpr = window.devicePixelRatio || 1;
+        const now = new Date().toISOString();
+        const url = location.href;
+        const user = currentTwitchUser?.login || localStorage.getItem('twitchUserDisplayName') || 'не авторизован';
+        let info = '';
+        info += 'User-Agent: ' + ua + '\n';
+        info += 'Платформа: ' + plat + '\n';
+        info += 'Экран: ' + sc.width + 'x' + sc.height + ' (' + sc.colorDepth + 'bit, ' + dpr + 'x)\n';
+        info += 'Ориентация: ' + orient + '\n';
+        info += 'Язык: ' + lang + ' (' + langs + ')\n';
+        info += 'CPU: ' + cpu + ' ядер\n';
+        info += 'Тач: ' + touch + ' точек\n';
+        info += 'Куки: ' + cookie + '\n';
+        info += 'URL: ' + url + '\n';
+        info += 'Время: ' + now + '\n';
+        info += 'Часовой пояс: ' + tz + '\n';
+        info += 'Пользователь: ' + user + '\n';
+        // Fetch IP async
+        fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => {
+            const el = document.getElementById('bugDeviceInfo');
+            if (el && el.textContent.includes('IP:')) return;
+            if (el) el.textContent = el.textContent.replace(/\n$/, '') + '\nIP: ' + (d.ip || 'N/A');
+        }).catch(() => {});
+        return info;
+    }
+
+    function showBugReport() {
+        const overlay = document.getElementById('bugReportOverlay');
+        if (!overlay) return;
+        overlay.style.display = 'flex';
+        document.getElementById('bugDescription').value = '';
+        document.getElementById('bugScreenshot').value = '';
+        document.getElementById('bugReportStatus').textContent = '';
+        document.getElementById('bugSubmitBtn').disabled = false;
+        document.getElementById('bugSubmitBtn').textContent = '📤 Отправить';
+        const devEl = document.getElementById('bugDeviceInfo');
+        devEl.textContent = collectDeviceInfo() + '\nIP: запрос...';
+    }
+
+    function closeBugReport() {
+        const overlay = document.getElementById('bugReportOverlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    async function submitBugReport() {
+        const desc = document.getElementById('bugDescription').value.trim();
+        if (!desc) {
+            document.getElementById('bugReportStatus').textContent = '❌ Опиши проблему';
+            return;
+        }
+        const btn = document.getElementById('bugSubmitBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Отправка...';
+        const status = document.getElementById('bugReportStatus');
+        status.textContent = '';
+
+        const chatIds = await getTgChatIds();
+        if (!chatIds.length) {
+            status.textContent = '❌ Telegram Chat ID не настроен (Admin → Telegram)';
+            btn.disabled = false;
+            btn.textContent = '📤 Отправить';
+            return;
+        }
+
+        const devInfo = document.getElementById('bugDeviceInfo').textContent;
+        const text = '🐛 <b>Баг-репорт</b>\n\n'
+            + '<b>Описание:</b>\n' + desc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '\n\n'
+            + '<b>Устройство:</b>\n<code>' + devInfo.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code>';
+
+        const sendToAll = async (fn) => {
+            for (const cid of chatIds) {
+                try { await fn(cid); } catch (e) { console.error('Send to', cid, 'failed:', e); }
+            }
+        };
+
+        try {
+            const fileInput = document.getElementById('bugScreenshot');
+            const file = fileInput?.files?.[0];
+
+            if (file) {
+                await sendToAll(async (cid) => {
+                    const formData = new FormData();
+                    formData.append('chat_id', cid);
+                    formData.append('photo', file);
+                    formData.append('caption', text.slice(0, 1024));
+                    formData.append('parse_mode', 'HTML');
+                    const res = await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendPhoto', { method: 'POST', body: formData });
+                    if (!res.ok) throw new Error('Telegram API error');
+
+                    if (text.length > 1024) {
+                        const remaining = '📎 <b>Продолжение:</b>\n' + text.slice(1024);
+                        await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ chat_id: cid, text: remaining.slice(0, 4096), parse_mode: 'HTML' })
+                        });
+                    }
+                });
+            } else {
+                await sendToAll(async (cid) => {
+                    const res = await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chat_id: cid, text: text.slice(0, 4096), parse_mode: 'HTML' })
+                    });
+                    if (!res.ok) throw new Error('Telegram API error');
+                });
+            }
+
+            status.textContent = '✅ Отправлено ' + chatIds.length + ' получателям! Спасибо!';
+            btn.textContent = '✅ Отправлено';
+            setTimeout(closeBugReport, 2000);
+        } catch (e) {
+            status.textContent = '❌ Ошибка: ' + e.message;
+            btn.disabled = false;
+            btn.textContent = '📤 Отправить';
+        }
+    }
+
+    // ── Telegram config (Admin) ──
+    async function saveTgConfig() {
+        const input = document.getElementById('tgChatIdInput');
+        const status = document.getElementById('tgConfigStatus');
+        const val = input.value.trim();
+        if (!val) { status.textContent = '❌ Введи Chat ID'; return; }
+        try {
+            await db.ref('config/tg-chat-id').set(val);
+            _tgChatIds = val.split(/[\s,;]+/).filter(Boolean);
+            status.textContent = '✅ Сохранено (' + _tgChatIds.length + ' ID): ' + _tgChatIds.join(', ');
+        } catch (e) {
+            status.textContent = '❌ Ошибка: ' + e.message;
+        }
+    }
+
+    async function loadTgConfig() {
+        const status = document.getElementById('tgConfigStatus');
+        try {
+            const ids = await getTgChatIds();
+            document.getElementById('tgChatIdInput').value = ids.join(', ') || '';
+            status.textContent = ids.length ? '✅ ' + ids.length + ' ID: ' + ids.join(', ') : '🟡 Не настроен';
+        } catch (e) {
+            status.textContent = '❌ Ошибка: ' + e.message;
+        }
+    }
+
+    async function testTgBot() {
+        const status = document.getElementById('tgConfigStatus');
+        const chatIds = await getTgChatIds();
+        if (!chatIds.length) { status.textContent = '❌ Сначала сохрани Chat ID'; return; }
+        try {
+            status.textContent = '⏳ Тест для ' + chatIds.length + ' получателей...';
+            let ok = 0, fail = 0;
+            for (const cid of chatIds) {
+                const res = await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: cid, text: '🧪 Тестовое сообщение от RGB Analytics', parse_mode: 'HTML' })
+                });
+                if (res.ok) ok++; else fail++;
+            }
+            status.textContent = '✅ Отправлено ' + ok + ', ошибок ' + fail;
+        } catch (e) {
+            status.textContent = '❌ ' + e.message;
+        }
     }
 
 </script>
