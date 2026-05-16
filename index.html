@@ -333,7 +333,7 @@
     function twitchLogin() {
         if (!TWITCH_CLIENT_ID) { document.getElementById('twitchStatus').textContent = 'Twitch Client ID не настроен'; return; }
         const redirect = encodeURIComponent(window.location.href.split('#')[0]);
-        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers+moderator:read:chatters&force_verify=true';
+        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers+moderator:read:chatters+moderator:read:subscriptions&force_verify=true';
     }
 
     function logout() {
@@ -2609,10 +2609,23 @@
         };
         // Use cached followers from openCreator (same as main page)
         const totalFollowersLive = _creatorFollowersCache[login] || 0;
+        const getSubs = async () => {
+            const token = localStorage.getItem('twitchAccessToken');
+            if (!token || !currentTwitchUser?.id) return null;
+            if (currentTwitchUser.id !== userId) return null;
+            try {
+                const r = await fetch('https://api.twitch.tv/helix/subscriptions?broadcaster_id=' + userId + '&moderator_id=' + userId + '&first=1', {
+                    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+                });
+                if (r.ok) { const d = await r.json(); return d.total || 0; }
+            } catch {}
+            return null;
+        };
         Promise.all([
             getTt(),
+            getSubs(),
             db.ref('stream-chunks/' + login).once('value').then(s => s.val() || {})
-        ]).then(([ttData, chunks]) => {
+        ]).then(([ttData, subsCount, chunks]) => {
             const ttKeys = ttData && typeof ttData === 'object' ? Object.keys(ttData) : [];
 
             let csvStreams = 0, snapDays = 0, totalMinutes = 0, totalWatchTime = 0, totalFollowers = 0;
@@ -2682,12 +2695,14 @@
                 const newFollowers30 = ttData.followers || 0;
                 html += '<div class="metric"><p>📊 Новые фоловеры (30д)</p><strong style="font-size:22px">+' + newFollowers30.toLocaleString('ru-RU') + '</strong></div>';
                 html += '<div class="metric"><p>👥 Всего фоловеров</p><strong style="font-size:22px;color:#4ade80">' + totalFollowersLive.toLocaleString('ru-RU') + '</strong></div>';
+                if (subsCount !== null) html += '<div class="metric"><p>💰 Платная подписка</p><strong style="font-size:22px;color:#fbbf24">' + subsCount.toLocaleString('ru-RU') + '</strong></div>';
                 if (ttData.rank) html += '<div class="metric"><p>🏆 Рейтинг</p><strong style="font-size:22px">#' + ttData.rank + '</strong></div>';
                 html += '</div>';
             } else {
                 html += '<h3 style="font-size:16px;margin-bottom:12px">📈 TwitchTracker</h3>';
                 html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
                 html += '<div class="metric"><p>👥 Всего фоловеров</p><strong style="font-size:22px;color:#4ade80">' + totalFollowersLive.toLocaleString('ru-RU') + '</strong></div>';
+                if (subsCount !== null) html += '<div class="metric"><p>💰 Платная подписка</p><strong style="font-size:22px;color:#fbbf24">' + subsCount.toLocaleString('ru-RU') + '</strong></div>';
                 html += '<div class="metric" style="grid-column:1/-1"><p class="muted">TwitchTracker временно недоступен</p></div>';
                 html += '</div>';
             }
