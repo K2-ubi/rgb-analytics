@@ -111,18 +111,18 @@
 
         .nav {
             display: grid;
-            gap: 4px;
+            gap: 2px;
             flex: 1;
         }
 
         .nav button {
             width: 100%;
             text-align: left;
-            padding: 11px 14px;
-            border-radius: 8px;
+            padding: 8px 12px;
+            border-radius: 6px;
             background: transparent;
             border: 1px solid transparent;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             color: var(--muted);
             transition: all .15s ease;
@@ -1033,7 +1033,7 @@
             return;
         }
         const redirect = encodeURIComponent(window.location.href.split('#')[0]);
-        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers+moderator:read:chatters+moderator:read:subscriptions&force_verify=true';
+        window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers+moderator:read:chatters+channel:read:subscriptions&force_verify=true';
     }
 
     function logout() {
