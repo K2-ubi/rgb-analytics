@@ -879,7 +879,7 @@
 
 <script>
     const TWITCH_CLIENT_ID = 'a26lg52682u7ja24bam0p8lnahs7lg';
-    const TG_BOT_TOKEN = '8708472197:AAGqoPzMM8tL5cadNPj-z7DPIEEBEXxXXTQ';
+    let TG_PROXY_URL = '/api/telegram';
     let _tgChatIds = [];
 
     async function getTgChatIds() {
@@ -987,8 +987,18 @@
         return 'unknown:?:?';
     }
 
+    async function callTgApi(action, payload) {
+        const res = await fetch(TG_PROXY_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ action, ...payload })
+        });
+        if (!res.ok) throw new Error('Telegram API error: ' + res.status);
+        return res.json();
+    }
+
     async function sendErrorToTelegram(error, context = '') {
-        if (!TG_BOT_TOKEN || !TG_CHAT_IDS.length) return;
+        if (!TG_CHAT_IDS.length) return;
         try {
             const ip = await getIP();
             const loc = getErrorLocation(error);
@@ -1009,11 +1019,7 @@
             ].join('\n');
 
             for (const chatId of TG_CHAT_IDS) {
-                await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({chat_id: chatId, text})
-                });
+                await callTgApi('sendMessage', { chat_id: chatId, text });
             }
         } catch (e) {
             console.warn('Telegram error report failed:', e);
@@ -1164,6 +1170,7 @@
 <script>
     async function initApp() {
         try {
+            TG_PROXY_URL = await getTgProxyUrl();
             const app = document.getElementById('app');
             const authBlock = document.getElementById('authBlock');
             const hasHash = window.location.hash.includes('access_token');
@@ -1726,6 +1733,7 @@
                 <p class="muted" style="margin-bottom:12px">🤖 Telegram для баг-репортов</p>
                 <div style="display:grid;gap:12px">
                     <input type="text" id="tgChatIdInput" placeholder="Telegram Chat ID (несколько через запятую: 123,456)" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;font-family:monospace">
+                    <input type="url" id="tgProxyUrlInput" placeholder="URL прокси для Telegram (по умолч. /api/telegram)" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white;font-family:monospace;margin-bottom:8px">
                     <div style="display:flex;gap:10px">
                         <button class="btn primary" onclick="saveTgConfig()">💾 Сохранить</button>
                         <button class="btn" onclick="loadTgConfig()">🔄 Загрузить</button>
@@ -4452,32 +4460,34 @@
 
             if (file) {
                 await sendToAll(async (cid) => {
-                    const formData = new FormData();
-                    formData.append('chat_id', cid);
-                    formData.append('photo', file);
-                    formData.append('caption', text.slice(0, 1024));
-                    formData.append('parse_mode', 'HTML');
-                    const res = await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendPhoto', {
-                        method: 'POST',
-                        body: formData
+                    const reader = new FileReader();
+                    const dataUrl = await new Promise((resolve) => {
+                        reader.onload = () => resolve(reader.result);
+                        reader.readAsDataURL(file);
                     });
-                    if (!res.ok) throw new Error('Telegram API error');
+                    await callTgApi('sendPhoto', {
+                        chat_id: cid,
+                        photo: dataUrl,
+                        caption: text.slice(0, 1024),
+                        parse_mode: 'HTML'
+                    });
 
                     if (text.length > 1024) {
                         const remaining = '📎 <b>Продолжение:</b>\n' + text.slice(1024);
-                        await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({chat_id: cid, text: remaining.slice(0, 4096), parse_mode: 'HTML'})
+                        await callTgApi('sendMessage', {
+                            chat_id: cid,
+                            text: remaining.slice(0, 4096),
+                            parse_mode: 'HTML'
                         });
                     }
                 });
             } else {
                 await sendToAll(async (cid) => {
-                    const res = await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({chat_id: cid, text: text.slice(0, 4096), parse_mode: 'HTML'})
+                    await callTgApi('sendMessage', {
+                        chat_id: cid,
+                        text: text.slice(0, 4096),
+                        parse_mode: 'HTML'
                     });
-                    if (!res.ok) throw new Error('Telegram API error');
                 });
             }
 
@@ -4492,17 +4502,30 @@
     }
 
     // ── Telegram config (Admin) ──
+    async function getTgProxyUrl() {
+        try {
+            const snap = await db.ref('config/tg-proxy-url').once('value');
+            return snap.val() || '/api/telegram';
+        } catch {
+            return '/api/telegram';
+        }
+    }
+
     async function saveTgConfig() {
         const input = document.getElementById('tgChatIdInput');
+        const proxyInput = document.getElementById('tgProxyUrlInput');
         const status = document.getElementById('tgConfigStatus');
         const val = input.value.trim();
+        const proxyVal = proxyInput.value.trim() || '/api/telegram';
         if (!val) {
             status.textContent = '❌ Введи Chat ID';
             return;
         }
         try {
             await db.ref('config/tg-chat-id').set(val);
+            await db.ref('config/tg-proxy-url').set(proxyVal);
             _tgChatIds = val.split(/[\s,;]+/).filter(Boolean);
+            TG_PROXY_URL = proxyVal;
             status.textContent = '✅ Сохранено (' + _tgChatIds.length + ' ID): ' + _tgChatIds.join(', ');
         } catch (e) {
             status.textContent = '❌ Ошибка: ' + e.message;
@@ -4514,6 +4537,8 @@
         try {
             const ids = await getTgChatIds();
             document.getElementById('tgChatIdInput').value = ids.join(', ') || '';
+            const proxyUrl = await getTgProxyUrl();
+            document.getElementById('tgProxyUrlInput').value = proxyUrl !== '/api/telegram' ? proxyUrl : '';
             status.textContent = ids.length ? '✅ ' + ids.length + ' ID: ' + ids.join(', ') : '🟡 Не настроен';
         } catch (e) {
             status.textContent = '❌ Ошибка: ' + e.message;
@@ -4531,15 +4556,16 @@
             status.textContent = '⏳ Тест для ' + chatIds.length + ' получателей...';
             let ok = 0, fail = 0;
             for (const cid of chatIds) {
-                const res = await fetch('https://api.telegram.org/bot' + TG_BOT_TOKEN + '/sendMessage', {
-                    method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
+                try {
+                    await callTgApi('sendMessage', {
                         chat_id: cid,
                         text: '🧪 Тестовое сообщение от RGB Analytics',
                         parse_mode: 'HTML'
-                    })
-                });
-                if (res.ok) ok++; else fail++;
+                    });
+                    ok++;
+                } catch {
+                    fail++;
+                }
             }
             status.textContent = '✅ Отправлено ' + ok + ', ошибок ' + fail;
         } catch (e) {

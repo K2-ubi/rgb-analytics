@@ -1,11 +1,11 @@
 const TWITCH_TOKEN = 'https://id.twitch.tv/oauth2/token';
 const TWITCH_API  = 'https://api.twitch.tv/helix';
-const TWITCH_CLIENT_ID = 'nvbp7ivyet47jxun4efsk3v803px73';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS, POST',
   'Access-Control-Allow-Headers': 'Content-Type',
+  'X-Content-Type-Options': 'nosniff',
 };
 
 export default {
@@ -14,7 +14,7 @@ export default {
     const url = new URL(request.url);
     try {
       switch (url.pathname) {
-        case '/api/auth': return auth();
+        case '/api/auth': return auth(env);
         case '/api/callback': return callback(url, env);
         case '/api/status': return status(env);
         case '/api/bot-info': return botInfo(env);
@@ -44,7 +44,7 @@ async function getToken(env) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'refresh_token', refresh_token: rt,
-      client_id: TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
+      client_id: env.TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
     }),
   });
   const d = await r.json();
@@ -59,7 +59,7 @@ async function getToken(env) {
 async function saveInfo(env, token) {
   if (await env.KV.get('bot_login')) return;
   const r = await fetch(TWITCH_API + '/users', {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
   });
   const d = await r.json();
   if (d.data?.[0]) {
@@ -69,10 +69,10 @@ async function saveInfo(env, token) {
   }
 }
 
-function auth() {
+function auth(env) {
   const p = new URLSearchParams({
-    client_id: TWITCH_CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
+    client_id: env.TWITCH_CLIENT_ID,
+    redirect_uri: env.REDIRECT_URI,
     response_type: 'code',
     scope: 'moderator:read:chatters moderator:read:followers',
     force_verify: 'true',
@@ -87,9 +87,9 @@ async function callback(url, env) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id: TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
+      client_id: env.TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
       code, grant_type: 'authorization_code',
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: env.REDIRECT_URI,
     }),
   });
   const d = await r.json();
@@ -106,7 +106,7 @@ async function proxy(url, env, path) {
   const token = await getToken(env);
   const q = new URLSearchParams(url.search);
   const r = await fetch(TWITCH_API + path + '?' + q, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
   });
   return json(await r.json(), r.status);
 }
@@ -117,7 +117,7 @@ async function proxyAsBot(url, env, path) {
   const botId = await env.KV.get('bot_id');
   if (botId) q.set('moderator_id', botId);
   const r = await fetch(TWITCH_API + path + '?' + q, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
   });
   return json(await r.json(), r.status);
 }
@@ -126,7 +126,7 @@ async function botInfo(env) {
   const token = await getToken(env);
   return json({
     token,
-    client_id: TWITCH_CLIENT_ID,
+    client_id: env.TWITCH_CLIENT_ID,
     login: await env.KV.get('bot_login'),
     display: await env.KV.get('bot_display'),
     id: await env.KV.get('bot_id'),
@@ -194,7 +194,7 @@ async function monitorStreams(env) {
       let userId = member.id;
       if (!userId) {
         const uRes = await fetch(TWITCH_API + '/users?login=' + member.login, {
-          headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
+          headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
         });
         const uData = await uRes.json();
         if (!uData.data?.[0]) continue;
@@ -204,7 +204,7 @@ async function monitorStreams(env) {
 
       // Check if currently live
       const sRes = await fetch(TWITCH_API + '/streams?user_id=' + userId, {
-        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID },
+        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
       });
       const sData = await sRes.json();
       const stream = sData.data?.[0];

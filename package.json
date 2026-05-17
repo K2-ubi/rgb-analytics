@@ -1,0 +1,9 @@
+{
+  "name": "rgb-analytics",
+  "version": "2.0.0",
+  "description": "RGB Twitch Analytics",
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}

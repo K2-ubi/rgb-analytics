@@ -1,7 +1,30 @@
-const https = require('https');
+const { initializeApp, getApps, cert } = require('firebase-admin/app');
+const { getDatabase } = require('firebase-admin/database');
+const fs = require('fs');
 
-const FIREBASE_DB_URL = 'https://rgb-analytics-default-rtdb.firebaseio.com';
-const FIREBASE_DB_SECRET = 'CGve6ffhjdQD7nNJZ0dnXawLoJ02mjEiTqpamc1o';
+function getAdminApp() {
+  if (getApps().length) return getApps()[0];
+
+  const saB64 = process.env.FIREBASE_SERVICE_ACCOUNT;
+  let serviceAccount;
+
+  if (saB64) {
+    serviceAccount = JSON.parse(Buffer.from(saB64, 'base64').toString('utf-8'));
+  } else if (fs.existsSync('./serviceAccountKey.json')) {
+    serviceAccount = JSON.parse(fs.readFileSync('./serviceAccountKey.json', 'utf-8'));
+  } else {
+    console.error('❌ Установи FIREBASE_SERVICE_ACCOUNT (base64) или положи serviceAccountKey.json в корень');
+    process.exit(1);
+  }
+
+  return initializeApp({
+    credential: cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DB_URL || `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`,
+  });
+}
+
+const app = getAdminApp();
+const db = getDatabase(app);
 
 const LOGIN = 'k2gemer';
 
@@ -23,21 +46,6 @@ const streams = [
   { date: '2026-04-16', time: '02:06', mins: 1014, watchMins: 3042, avg: 3, peak: 10, followers: 1, games: 'Just Chatting,Minecraft,Noita,I\'m Only Sleeping,Hozy,Yunyun Syndrome!?: Rhythm Psychosis,Viewfinder,DON\'T SCREAM TOGETHER' },
   { date: '2026-04-15', time: '14:57', mins: 348, watchMins: 1044, avg: 3, peak: 11, followers: 0, games: 'Minecraft,Just Chatting,Strinova' },
 ];
-
-function firebasePatch(path, data) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(path + '.json?auth=' + FIREBASE_DB_SECRET, FIREBASE_DB_URL);
-    const body = JSON.stringify(data);
-    const req = https.request(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' } }, res => {
-      let r = '';
-      res.on('data', c => r += c);
-      res.on('end', () => { try { resolve(JSON.parse(r)); } catch { resolve(r); } });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
 
 async function main() {
   console.log('Importing ' + streams.length + ' streams for ' + LOGIN);
@@ -68,7 +76,7 @@ async function main() {
 
     const chunkPath = 'stream-chunks/' + LOGIN + '/' + s.date + '/' + chunkTs;
     try {
-      await firebasePatch(chunkPath, chunk);
+      await db.ref(chunkPath).update(chunk);
       console.log('  \u2713 ' + s.date + ' (' + s.mins + 'min, avg ' + s.avg + ', peak ' + s.peak + ')');
       imported++;
     } catch (e) {
