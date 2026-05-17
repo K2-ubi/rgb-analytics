@@ -863,6 +863,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script>
     const firebaseConfig = {
         apiKey: "AIzaSyCzJoJovKJGMjeFHHw3iFliDg3dQn0ZEAI",
@@ -875,6 +876,9 @@
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
+    const authReady = firebase.auth().signInAnonymously()
+        .then(() => console.log('Firebase anonymous auth OK'))
+        .catch(e => console.warn('Firebase anonymous auth failed:', e));
 </script>
 
 <script>
@@ -1170,6 +1174,7 @@
 <script>
     async function initApp() {
         try {
+            await authReady;
             TG_PROXY_URL = await getTgProxyUrl();
             const app = document.getElementById('app');
             const authBlock = document.getElementById('authBlock');
