@@ -1,0 +1,82 @@
+{
+  "rules": {
+    "config": {
+      "tg-chat-id": {
+        ".read": "auth.uid !== null",
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      },
+      "bot": {
+        ".read": "auth.uid !== null",
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      },
+      "localhost-password": {
+        ".read": false,
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "twitch-users": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()",
+      "$uid": {
+        ".write": "root.child('admins').child(auth.uid).exists() || auth.uid === $uid"
+      }
+    },
+    "userStats": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null",
+      "$uid": {
+        ".write": "auth.uid === $uid || root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "stats": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+    "admins": {
+      ".read": "root.child('admins').child(auth.uid).exists()",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "photos": {
+      ".read": "auth.uid !== null",
+      "$uid": {
+        ".write": "auth.uid === $uid || root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "apitg": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "photoCheck": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "banned": {
+      ".read": false,
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "iptracker": {
+      ".read": "root.child('admins').child(auth.uid).exists()",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "stream-chunks": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "stream-cache": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "twitch-tracker": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "squad": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+    "creators": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    }
+  }
+}
