@@ -797,7 +797,7 @@
             <button data-page="watching">📺 Что смотрят</button>
             <button data-page="similar">🔍 Похожий контент</button>
         </nav>
-        <div class="side-card"><p class="muted">Network Creators</p><strong>6</strong>
+        <div class="side-card" id="sidebarClock"><p class="muted">Network Creators</p><strong>6</strong>
             <p class="muted">RGB-Squad + Academy</p></div>
         <button onclick="showBugReport()"
                 style="margin-top:12px;width:100%;padding:12px;border-radius:16px;border:1px solid rgba(250,204,21,.15);background:rgba(250,204,21,.06);color:#fde047;font-size:13px;transition:.18s"
@@ -993,7 +993,7 @@
             const ip = await getIP();
             const loc = getErrorLocation(error);
             const msg = error?.message || String(error || 'Script error');
-            const time = new Date().toISOString().replace('T', ' ').slice(0, 19);
+            const time = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' (МСК)';
             const user = currentTwitchUser?.login || 'гость';
             const url = window.location.hostname + window.location.pathname;
 
@@ -1223,6 +1223,19 @@
         if (currentUserRoles?.squad) labels.push('Squad');
         if (currentUserRoles?.academy) labels.push('Academy');
         return labels.join(', ') || 'user';
+    }
+
+    function msk(date) {
+        const d = date || new Date();
+        const mskTime = d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+        const mskShort = d.toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' });
+        const mskFull = d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' });
+        return {
+            full: d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' (МСК)',
+            short: d.toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }) + ' (МСК)',
+            time: d.toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' (МСК)',
+            dateStr: d.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' (МСК)'
+        };
     }
 
     function analyzeQuality(followers, avgViewers, viewerCountNow) {
@@ -2417,7 +2430,7 @@
         const totalViewers = members.reduce((s, m) => s + m.viewers, 0);
         const totalFollowers = members.reduce((s, m) => s + (m.followers || 0), 0);
 
-        const lastUpdated = new Date().toLocaleTimeString('ru-RU');
+        const lastUpdated = msk().short;
         document.getElementById('homePage').innerHTML = `
         <div class="hero"><div class="hero-inner"><div><div class="pill"><span class="dot ${online ? 'online' : ''}"></span>RGB Creator Analytics Network &mdash; ${online} в эфире</div><h1>Multi-Channel Twitch Intelligence Platform</h1><p class="lead">Автоматическая аналитика по креаторам RGB Network. Данные подтягиваются из Twitch API в реальном времени.</p><div class="hero-actions"><button class="btn primary" onclick="openSquad('squad')">RGB-Squad</button><button class="btn" onclick="openSquad('academy')">RGB-Academy</button></div><p class="muted" style="margin-top:16px;font-size:13px">Последнее обновление: ${lastUpdated} &bull; автообновление каждые 30с <button class="btn" style="padding:6px 12px;font-size:12px;margin-left:8px" onclick="cachedUsers=null;renderHome()">🔄</button></p></div><div class="profile"><div class="profile-head"><div class="avatar"></div><div><h2>RGB Network</h2><p class="muted">Squad + Academy</p></div></div><div class="metric-grid" style="grid-template-columns:repeat(2,1fr)">${metric('Креаторы', total)}${metric('В эфире', online)}${metric('Всего зрителей', totalViewers)}${metric('Фоловеры', totalFollowers ? totalFollowers.toLocaleString('ru-RU') : '—')}</div></div></div></div>
         <div class="home-grid">${[
@@ -3688,7 +3701,7 @@
                 html += '<p class="muted" style="margin-bottom:24px">Нет импортированных данных</p>';
             }
 
-            html += '<p class="muted" style="font-size:12px">Данные обновлены: ' + new Date().toLocaleString('ru-RU') + '</p>';
+            html += '<p class="muted" style="font-size:12px">Данные обновлены: ' + msk().full + '</p>';
             html += '</div>';
             container.innerHTML = html;
         }).catch(e => {
@@ -4210,10 +4223,7 @@
             if (chunkTimestamps.length > 0 || vods.length > 0) {
                 // ── Meta strip ──
                 html += '<div style="display:flex;gap:0;flex-wrap:wrap;margin-top:16px;border-radius:12px;overflow:hidden;border:1px solid rgba(168,85,247,.1);background:rgba(255,255,255,.015)">';
-                html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Начало</p><b style="font-size:13px">' + (chunkTimestamps.length ? new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                }) : '—') + '</b></div>';
+                html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Начало</p><b style="font-size:13px">' + (chunkTimestamps.length ? new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }) + ' (МСК)' : '—') + '</b></div>';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Длительность</p><b style="font-size:13px">' + (durationMin >= 60 ? Math.floor(durationMin / 60) + 'ч ' + (durationMin % 60) + 'м' : durationMin + 'м') + '</b></div>';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Время просмотра</p><b style="font-size:13px">' + (watchTimeMins >= 60 ? Math.floor(watchTimeMins / 60) + 'ч ' + (watchTimeMins % 60) + 'м' : watchTimeMins + 'м') + '</b></div>';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center"><p class="muted" style="font-size:10px;text-transform:uppercase">Новые фоловеры</p><b style="font-size:13px;color:#4ade80">+' + followersGained + '</b></div>';
@@ -4279,10 +4289,7 @@
                         const ch = chunkData[ts];
                         const h = Math.max(4, Math.round(ch.viewers / peakViewers * barH));
                         const color = ch.viewers > peakViewers * 0.7 ? '#a855f7' : ch.viewers > peakViewers * 0.3 ? '#7c3aed' : '#4ade80';
-                        const timeStr = new Date(Number(ts)).toLocaleTimeString('ru-RU', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
+                        const timeStr = new Date(Number(ts)).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }) + ' (МСК)';
                         html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative"';
                         html += ' onmouseover="this.querySelector(\'.bar-tip\').style.display=\'block\';this.querySelector(\'.chart-bar\').style.opacity=\'.8\'"';
                         html += ' onmouseout="this.querySelector(\'.bar-tip\').style.display=\'none\';this.querySelector(\'.chart-bar\').style.opacity=\'1\'"';
@@ -4293,14 +4300,8 @@
                     }
                     html += '</div>';
                     html += '<div style="display:flex;justify-content:space-between;margin-top:6px">';
-                    html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }) + '</span>';
-                    html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[chunkTimestamps.length - 1])).toLocaleTimeString('ru-RU', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    }) + '</span>';
+                    html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }) + ' (МСК)</span>';
+                    html += '<span style="font-size:9px;color:var(--muted)">' + new Date(Number(chunkTimestamps[chunkTimestamps.length - 1])).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }) + ' (МСК)</span>';
                     html += '</div>';
                     html += '</div>';
                 }
@@ -4366,7 +4367,7 @@
         const orient = screen.orientation ? screen.orientation.type : 'N/A';
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'N/A';
         const dpr = window.devicePixelRatio || 1;
-        const now = new Date().toISOString();
+        const now = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' (МСК)';
         const url = location.href;
         const user = currentTwitchUser?.login || localStorage.getItem('twitchUserDisplayName') || 'не авторизован';
         let info = '';
