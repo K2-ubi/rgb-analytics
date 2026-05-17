@@ -1290,11 +1290,14 @@
         _interval: null,
         _broadcasterId: null,
         _broadcasterLogin: null,
+        _currentLiveIds: new Set(),
+        _showCurrentOnly: false,
 
         async start(broadcasterId, broadcasterLogin) {
             this._broadcasterId = broadcasterId;
             this._broadcasterLogin = broadcasterLogin;
             this.viewers = {};
+            this._showCurrentOnly = false;
             if (this._interval) clearInterval(this._interval);
             try {
                 const snap = await db.ref('viewer-history/' + broadcasterLogin).once('value');
@@ -1359,6 +1362,7 @@
                 if (!chattersRes || !chattersRes.ok) return;
                 const data = await chattersRes.json();
                 const currentIds = new Set();
+                this._currentLiveIds = currentIds;
 
                 const chatters = data.data || [];
                 const ids = chatters.map(c => c.user_id).filter(Boolean);
@@ -1586,7 +1590,11 @@
         },
 
         getViewers() {
-            return Object.values(this.viewers)
+            let list = Object.values(this.viewers);
+            if (this._showCurrentOnly && this._currentLiveIds.size > 0) {
+                list = list.filter(v => this._currentLiveIds.has(v.userId));
+            }
+            return list
                 .map(v => ({...v, analysis: this.analyzeViewer(v)}))
                 .sort((a, b) => b.analysis.score - a.analysis.score);
         },
@@ -1600,8 +1608,12 @@
             <div class="page-card" style="margin-top:24px">
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px">
                     <div><h2 style="font-size:24px">👁 Анализ зрителей</h2>
-                    <p class="muted">Всего в чате: ${list.length} ${suspicious.length ? '| ⚠️ Подозрительных: ' + suspicious.length : ''}</p></div>
-                    <button class="btn" onclick="viewerTracker._poll();viewerTracker.renderTable()" style="padding:8px 14px;font-size:13px">🔄 Обновить</button>
+                    <p class="muted">${this._showCurrentOnly ? 'Сейчас в чате' : 'Всего зрителей'}: ${list.length} ${suspicious.length ? '| ⚠️ Подозрительных: ' + suspicious.length : ''}</p></div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn ${!this._showCurrentOnly ? 'primary' : ''}" onclick="viewerTracker._showCurrentOnly=false;viewerTracker.renderTable()" style="padding:6px 12px;font-size:12px">📋 Все</button>
+                        <button class="btn ${this._showCurrentOnly ? 'primary' : ''}" onclick="viewerTracker._showCurrentOnly=true;viewerTracker.renderTable()" style="padding:6px 12px;font-size:12px">🟢 В чате</button>
+                        <button class="btn" onclick="viewerTracker._poll();viewerTracker.renderTable()" style="padding:6px 12px;font-size:12px">🔄</button>
+                    </div>
                 </div>
                 ${list.length ? `
                 <div style="overflow-x:auto;border-radius:20px;border:1px solid var(--border)">
