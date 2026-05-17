@@ -3187,7 +3187,7 @@
         document.getElementById('checkUserPage').innerHTML = `
         <div class="page-card">
             <h1>🔍 Проверить пользователя</h1>
-            <p class="muted" style="margin-top:6px">Введи логин Twitch — проверим, где он сейчас сидит в чатах RGB</p>
+            <p class="muted" style="margin-top:6px">Введи логин Twitch — узнай, где он сейчас в чатах RGB и где был раньше</p>
             <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap">
                 <input type="text" id="checkUserInput" placeholder="Логин пользователя..."
                     onkeydown="if(event.key==='Enter') runCheckUser()"
@@ -3237,109 +3237,248 @@
             const modId = currentTwitchUser?.id || user.id;
             const onlineMembers = members.filter(m => m.isLive && m.twitchId);
 
-            result.innerHTML = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:18px;border-radius:18px;border:1px solid var(--border);background:var(--panel)">
-                ${user.profile_image_url ? '<img src="' + user.profile_image_url + '" style="width:52px;height:52px;border-radius:50%;object-fit:cover">' : '<div class="avatar" style="width:52px;height:52px"></div>'}
-                <div><b style="font-size:18px">${user.display_name}</b><p class="muted">@${user.login} &bull; создан ${new Date(user.created_at).toLocaleDateString('ru-RU')}</p></div>
-            </div>`;
+            const now = Date.now();
 
-            if (!onlineMembers.length) {
-                result.innerHTML += '<p class="muted">Нет участников RGB в эфире сейчас</p>';
-                show('checkUserPage');
-                return;
-            }
+            // --- Historical data from Firebase ---
+            const allViewersSnap = await db.ref('all-viewers/' + user.id).once('value');
+            const allViewersData = allViewersSnap.val();
+            const historyChannels = allViewersData?.channels || {};
+            const historyFirstSeen = allViewersData?.firstSeen || 0;
+            const historyLastSeen = allViewersData?.lastSeen || 0;
+            const historyCategories = allViewersData?.categories || {};
 
-            result.innerHTML += '<p class="muted">Проверяю чаты <b>' + onlineMembers.length + '</b> стримеров в эфире…</p>';
+            // --- Profile header ---
+            let html = `<div class="page-card" style="padding:28px">
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap">
+                    ${user.profile_image_url ? '<img src="' + user.profile_image_url + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover">' : '<div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--purple),var(--fuchsia))"></div>'}
+                    <div style="flex:1;min-width:200px">
+                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                            <b style="font-size:22px">${user.display_name}</b>
+                            <span style="font-size:13px;color:var(--muted)">@${user.login}</span>
+                        </div>
+                        <p class="muted" style="font-size:13px;margin-top:4px">Создан ${new Date(user.created_at).toLocaleDateString('ru-RU')}</p>
+                    </div>
+                    <div style="text-align:right">
+                        <a href="https://twitch.tv/${user.login}" target="_blank" class="btn" style="padding:8px 14px;font-size:13px;text-decoration:none">Открыть Twitch →</a>
+                    </div>
+                </div>`;
 
-            const found = [];
-            for (const m of onlineMembers) {
-                try {
-                    const cModId = botToken?.id || modId;
-                    const cHdrs = botToken ? {
-                        'Authorization': 'Bearer ' + botToken.token,
-                        'Client-Id': botToken.clientId || TWITCH_CLIENT_ID
-                    } : {'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID};
-                    const cRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + m.twitchId + '&moderator_id=' + cModId + '&first=1000', {headers: cHdrs});
-                    if (!cRes.ok) continue;
-                    const cData = await cRes.json();
-                    const chatters = cData.data || [];
-                    const match = chatters.find(c => c.user_id === user.id || c.user_login?.toLowerCase() === login);
-                    if (match) {
-                        found.push({member: m, chatter: match});
+            // --- Main status indicator ---
+            const isOnlineNow = false; // will be set below
+            let onlineChannels = [];
+
+            // Check online chats
+            if (onlineMembers.length > 0) {
+                html += '<p class="muted" style="margin-bottom:16px">🔍 Проверяю <b>' + onlineMembers.length + '</b> каналов в эфире…</p>';
+
+                for (const m of onlineMembers) {
+                    try {
+                        const cModId = botToken?.id || modId;
+                        const cHdrs = botToken ? {
+                            'Authorization': 'Bearer ' + botToken.token,
+                            'Client-Id': botToken.clientId || TWITCH_CLIENT_ID
+                        } : {'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID};
+                        const cRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + m.twitchId + '&moderator_id=' + cModId + '&first=1000', {headers: cHdrs});
+                        if (!cRes.ok) continue;
+                        const cData = await cRes.json();
+                        const chatters = cData.data || [];
+                        const match = chatters.find(c => c.user_id === user.id || c.user_login?.toLowerCase() === login);
+                        if (match) {
+                            onlineChannels.push({member: m, chatter: match});
+                        }
+                    } catch (e) {
                     }
-                } catch (e) {
                 }
             }
 
-            if (found.length === 0) {
-                result.innerHTML = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:18px;border-radius:18px;border:1px solid var(--border);background:var(--panel)">
-                    ${user.profile_image_url ? '<img src="' + user.profile_image_url + '" style="width:52px;height:52px;border-radius:50%;object-fit:cover">' : '<div class="avatar" style="width:52px;height:52px"></div>'}
-                    <div><b style="font-size:18px">${user.display_name}</b><p class="muted">@${user.login}</p></div>
-                </div>
-                <div style="padding:24px;text-align:center;border-radius:18px;border:1px solid var(--border);background:var(--panel2)">
-                    <p style="font-size:24px;margin-bottom:8px">👀</p>
-                    <p class="muted">Не найден в чатах RGB Network ❌</p>
-                    <p class="muted" style="font-size:13px;margin-top:4px">Возможно, не сидит в чатах участников или все стримеры офлайн</p>
+            const hasOnline = onlineChannels.length > 0;
+            const hasHistory = Object.keys(historyChannels).length > 0;
+
+            // --- Big status banner ---
+            if (hasOnline) {
+                html += `<div style="padding:20px;border-radius:16px;border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.08);display:flex;align-items:center;gap:14px;margin-bottom:20px">
+                    <span style="font-size:32px">🟢</span>
+                    <div>
+                        <b style="font-size:18px;color:#4ade80">В чате прямо сейчас</b>
+                        <p class="muted">Найден в ${onlineChannels.length} ${onlineChannels.length === 1 ? 'канале' : 'каналах'} RGB Network</p>
+                    </div>
                 </div>`;
-                show('checkUserPage');
-                return;
+            } else if (hasHistory) {
+                const lastSeenStr = historyLastSeen ? new Date(historyLastSeen).toLocaleDateString('ru-RU', {
+                    day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit'
+                }) : '—';
+                html += `<div style="padding:20px;border-radius:16px;border:1px solid rgba(250,204,21,.3);background:rgba(250,204,21,.08);display:flex;align-items:center;gap:14px;margin-bottom:20px">
+                    <span style="font-size:32px">🟡</span>
+                    <div>
+                        <b style="font-size:18px;color:#facc15">Был в чатах ранее</b>
+                        <p class="muted">Последний раз: ${lastSeenStr} &bull; ${Object.keys(historyChannels).length} каналов</p>
+                    </div>
+                </div>`;
+            } else {
+                html += `<div style="padding:20px;border-radius:16px;border:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.06);display:flex;align-items:center;gap:14px;margin-bottom:20px">
+                    <span style="font-size:32px">⚫</span>
+                    <div>
+                        <b style="font-size:18px;color:#ef4444">Не найден в RGB Network</b>
+                        <p class="muted">Не отслеживается в чатах участников</p>
+                    </div>
+                </div>`;
             }
 
-            let html = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:18px;border-radius:18px;border:1px solid var(--border);background:var(--panel)">
-                ${user.profile_image_url ? '<img src="' + user.profile_image_url + '" style="width:52px;height:52px;border-radius:50%;object-fit:cover">' : '<div class="avatar" style="width:52px;height:52px"></div>'}
-                <div><b style="font-size:18px">${user.display_name}</b><p class="muted">@${user.login} &bull; найден в ${found.length} ${found.length === 1 ? 'канале' : 'каналах'}</p></div>
-            </div>
-            <div style="display:grid;gap:12px">`;
+            // --- Quick stats row ---
+            const daysOld = Math.floor((now - new Date(user.created_at).getTime()) / 86400000);
+            html += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+                <div class="metric" style="flex:1;min-width:120px"><p>Аккаунт</p><strong style="font-size:20px">${daysOld} дн.</strong></div>
+                <div class="metric" style="flex:1;min-width:120px"><p>Сейчас в чатах</p><strong style="font-size:20px;color:${hasOnline ? '#4ade80' : 'var(--muted)'}">${hasOnline ? onlineChannels.length : '—'}</strong></div>
+                <div class="metric" style="flex:1;min-width:120px"><p>Был в каналах</p><strong style="font-size:20px">${Object.keys(historyChannels).length}</strong></div>
+                <div class="metric" style="flex:1;min-width:120px"><p>Категорий</p><strong style="font-size:20px">${Object.keys(historyCategories).length}</strong></div>
+            </div>`;
 
-            const now = Date.now();
-            const updates = {};
-            const chUpdates = {};
+            // --- Save to Firebase (always) ---
+            const fbUpdates = {};
+            fbUpdates['all-viewers/' + user.id + '/login'] = user.login;
+            fbUpdates['all-viewers/' + user.id + '/displayName'] = user.display_name;
+            fbUpdates['all-viewers/' + user.id + '/profileImageUrl'] = user.profile_image_url || '';
+            fbUpdates['all-viewers/' + user.id + '/createdAt'] = user.created_at || '';
+            fbUpdates['all-viewers/' + user.id + '/description'] = user.description || '';
+            fbUpdates['all-viewers/' + user.id + '/firstSeen'] = historyFirstSeen || now;
+            fbUpdates['all-viewers/' + user.id + '/lastSeen'] = now;
 
-            for (const f of found) {
-                const chLogin = f.member.login;
-                const chDisplay = f.member.displayName;
-                const game = f.member.gameName || '—';
-                const viewers = f.member.viewers || 0;
+            // Save online channels to history
+            for (const oc of onlineChannels) {
+                const chLogin = oc.member.login;
+                const chPath = 'all-viewers/' + user.id + '/channels/' + chLogin;
+                const existingCh = historyChannels[chLogin] || {};
+                fbUpdates[chPath + '/firstSeen'] = Math.min(existingCh.firstSeen || now, now);
+                fbUpdates[chPath + '/lastSeen'] = now;
 
-                html += `<div style="padding:18px;border-radius:18px;border:1px solid rgba(168,85,247,.25);background:rgba(168,85,247,.08);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-                    <div><b>${chDisplay}</b><p class="muted">🎮 ${game} &bull; 👁 ${viewers} зр.</p></div>
-                    <span class="tag" style="color:var(--green)">● LIVE</span>
-                </div>`;
-
-                chUpdates[chLogin] = {
-                    lastSeen: now,
-                    game: game || '',
-                    viewers: viewers || 0
-                };
+                const chHistoryPath = 'viewer-history/' + chLogin + '/' + user.id;
+                try {
+                    const chSnap = await db.ref(chHistoryPath).once('value');
+                    const chData = chSnap.val() || {};
+                    await db.ref(chHistoryPath).update({
+                        login: user.login,
+                        displayName: user.display_name,
+                        profileImageUrl: user.profile_image_url || '',
+                        createdAt: user.created_at || '',
+                        description: user.description || '',
+                        firstSeen: chData.firstSeen || now,
+                        lastSeen: now
+                    });
+                } catch (e) {}
             }
 
-            html += '</div>';
-
-            const chLogin = found[0]?.member?.login || '';
-            const game = found[0]?.member?.gameName || '';
             try {
-                await db.ref('viewer-history/' + chLogin + '/' + user.id).update({
-                    login: user.login,
-                    displayName: user.display_name,
-                    profileImageUrl: user.profile_image_url || '',
-                    createdAt: user.created_at || '',
-                    description: user.description || '',
-                    firstSeen: now,
-                    lastSeen: now
-                });
-                await db.ref('all-viewers/' + user.id).update({
-                    login: user.login,
-                    displayName: user.display_name,
-                    profileImageUrl: user.profile_image_url || '',
-                    createdAt: user.created_at || '',
-                    description: user.description || '',
-                    firstSeen: now,
-                    lastSeen: now,
-                    channels: chUpdates
-                });
-                html += '<p style="color:var(--green);margin-top:16px;font-size:14px">✅ Добавлен в статистику</p>';
-            } catch (e) {
-                html += '<p class="muted" style="margin-top:16px;font-size:13px">⚠️ Не удалось сохранить в статистику</p>';
+                await db.ref().update(fbUpdates);
+            } catch (e) {}
+
+            // --- Live channels section ---
+            if (hasOnline) {
+                html += `<div style="margin-bottom:20px">
+                    <h3 style="font-size:16px;margin-bottom:12px">🟢 Сейчас в чате</h3>
+                    <div style="display:grid;gap:10px">`;
+
+                for (const oc of onlineChannels) {
+                    const m = oc.member;
+                    html += `<div style="padding:16px;border-radius:14px;border:1px solid rgba(74,222,128,.25);background:rgba(74,222,128,.06);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+                        <div style="display:flex;align-items:center;gap:12px">
+                            ${m.profileImageUrl ? '<img src="' + m.profileImageUrl + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover">' : '<div style="width:40px;height:40px;border-radius:50%;background:var(--purple)"></div>'}
+                            <div>
+                                <b>${m.displayName}</b>
+                                <p class="muted" style="font-size:12px">🎮 ${m.gameName || '—'} &bull; 👁 ${m.viewers} зр.</p>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <span style="width:8px;height:8px;border-radius:50%;background:#4ade80;display:inline-block"></span>
+                            <span style="color:#4ade80;font-size:13px;font-weight:600">LIVE</span>
+                            <button class="btn" onclick="openCreator('${m.login}')" style="padding:6px 12px;font-size:12px">Открыть</button>
+                        </div>
+                    </div>`;
+                }
+
+                html += `</div></div>`;
             }
+
+            // --- Historical channels section ---
+            if (hasHistory) {
+                const chEntries = Object.entries(historyChannels)
+                    .map(([chLogin, chData]) => {
+                        const member = members.find(m => m.login === chLogin);
+                        const isLive = member?.isLive || false;
+                        const isOnlineNow = onlineChannels.some(oc => oc.member.login === chLogin);
+                        return {
+                            login: chLogin,
+                            displayName: member?.displayName || chLogin,
+                            avatar: member?.profileImageUrl || '',
+                            isLive,
+                            isOnlineNow,
+                            firstSeen: chData.firstSeen || 0,
+                            lastSeen: chData.lastSeen || 0,
+                            game: member?.gameName || ''
+                        };
+                    })
+                    .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+
+                html += `<h3 style="font-size:16px;margin-bottom:12px">📋 История посещений каналов</h3>
+                <div style="overflow-x:auto;border-radius:16px;border:1px solid var(--border)">
+                    <table class="table" style="min-width:700px">
+                        <thead><tr>
+                            <th>Канал</th>
+                            <th>Статус</th>
+                            <th>Первый раз</th>
+                            <th>Последний раз</th>
+                            <th></th>
+                        </tr></thead>
+                        <tbody>`;
+
+                for (const ch of chEntries) {
+                    const firstStr = ch.firstSeen ? new Date(ch.firstSeen).toLocaleString('ru-RU', {
+                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                    }) : '—';
+                    const lastStr = ch.lastSeen ? new Date(ch.lastSeen).toLocaleString('ru-RU', {
+                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                    }) : '—';
+
+                    let statusHtml = '';
+                    if (ch.isOnlineNow) {
+                        statusHtml = '<span style="color:#4ade80;font-weight:600">● Сейчас в чате</span>';
+                    } else if (ch.isLive) {
+                        statusHtml = '<span style="color:#22d3ee">● В эфире (не в чате)</span>';
+                    } else {
+                        statusHtml = '<span class="muted">○ Офлайн</span>';
+                    }
+
+                    html += `<tr onclick="${ch.isLive ? "openCreator('" + ch.login + "')" : ''}" style="cursor:${ch.isLive ? 'pointer' : 'default'}">
+                        <td><div class="creator-cell">
+                            ${ch.avatar ? '<img class="mini-avatar" src="' + ch.avatar + '" style="object-fit:cover;border-radius:50%">' : '<div class="mini-avatar"></div>'}
+                            <div><b>${ch.displayName}</b><p class="muted">@${ch.login}</p></div>
+                        </div></td>
+                        <td>${statusHtml}</td>
+                        <td style="font-size:13px">${firstStr}</td>
+                        <td style="font-size:13px">${lastStr}</td>
+                        <td>${ch.isLive ? '<span style="color:var(--purple);font-size:12px">→</span>' : ''}</td>
+                    </tr>`;
+                }
+
+                html += `</tbody></table></div>`;
+
+                // Categories
+                if (Object.keys(historyCategories).length > 0) {
+                    const catEntries = Object.entries(historyCategories)
+                        .sort((a, b) => (b[1].count || 0) - (a[1].count || 0));
+                    html += `<div style="margin-top:16px">
+                        <h3 style="font-size:16px;margin-bottom:12px">🎮 Интересы (категории)</h3>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px">`;
+                    for (const [cat, data] of catEntries) {
+                        html += `<span class="tag" style="font-size:12px;padding:6px 12px;background:rgba(168,85,247,.08);border-color:rgba(168,85,247,.15)">
+                            ${cat.slice(0, 30)} <span style="color:var(--muted);font-size:11px">(${data.count || 0})</span>
+                        </span>`;
+                    }
+                    html += `</div></div>`;
+                }
+            }
+
+            html += `<p class="muted" style="font-size:12px;margin-top:20px">🕐 Проверено: ${msk().full}</p>`;
+            html += '</div>';
 
             result.innerHTML = html;
         } catch (e) {
