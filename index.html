@@ -821,7 +821,6 @@
     </main>
 </div>
 
-
 <div id="bugReportOverlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeBugReport()">
     <div class="modal-box">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -1181,12 +1180,10 @@
             const hasHash = window.location.hash.includes('access_token');
             const hasToken = !!localStorage.getItem('twitchAccessToken');
 
-            // Показываем "загрузка" при возврате с Twitch
             if (hasHash) {
                 authBlock.innerHTML = '<div class="logo" style="width:80px;height:80px;margin:0 auto"></div><p class="muted" style="text-align:center;margin-top:20px">Авторизация…</p>';
             }
 
-            // Instant restore from cache — no loading flash
             if (!hasHash && restoreSession() && hasToken) {
                 app.classList.add('authorized');
                 authBlock.style.display = 'none';
@@ -1196,7 +1193,6 @@
                 updateSquadNavButton();
             }
 
-            // Full check in background: verify token + fetch fresh data
             const ok = await checkTwitchAuth();
             if (ok) {
                 app.classList.add('authorized');
@@ -1219,7 +1215,6 @@
     }
 
     initApp();
-
 
     function isAdmin() {
         return currentUserRoles && currentUserRoles.admin === true;
@@ -1289,7 +1284,6 @@
         return {label, color: score >= 65 ? '#4ade80' : score >= 45 ? '#facc15' : '#ef4444', score, flags};
     }
 
-    // ─── Viewer Analysis System ───────────────────────────────────────
     const viewerTracker = {
         viewers: {},
         history: {},
@@ -1302,7 +1296,6 @@
             this._broadcasterLogin = broadcasterLogin;
             this.viewers = {};
             if (this._interval) clearInterval(this._interval);
-            // Load historical viewer data from Firebase for global persistence
             try {
                 const snap = await db.ref('viewer-history/' + broadcasterLogin).once('value');
                 const history = snap.val() || {};
@@ -1350,7 +1343,6 @@
             let chattersRes;
             try {
                 const now = Date.now();
-                // 1) Try bot as moderator
                 if (botToken && botToken.id) {
                     chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + botToken.id + '&first=100', {
                         headers: {
@@ -1359,7 +1351,6 @@
                         }
                     });
                 }
-                // 2) Fallback: viewer is the broadcaster themselves → can see chatters
                 if ((!chattersRes || !chattersRes.ok) && modId === id) {
                     chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + id + '&first=100', {
                         headers: {'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID}
@@ -1369,7 +1360,6 @@
                 const data = await chattersRes.json();
                 const currentIds = new Set();
 
-                // Fetch user info for chatters (no mod scope needed)
                 const chatters = data.data || [];
                 const ids = chatters.map(c => c.user_id).filter(Boolean);
                 let userMap = {};
@@ -1411,7 +1401,6 @@
                     }
                 }
 
-                // Mark viewers who left
                 for (const vid in this.viewers) {
                     if (!currentIds.has(vid)) {
                         const v = this.viewers[vid];
@@ -1421,13 +1410,11 @@
                     }
                 }
 
-                // Update the viewer table if visible
                 const ve = document.getElementById('viewerAnalysis');
                 if (ve && !ve.classList.contains('hidden')) {
                     this.renderTable();
                 }
 
-                // Save to Firebase every 30s
                 if (!this._lastSaveTime || Date.now() - this._lastSaveTime > 30000) {
                     this._lastSaveTime = now;
                     this._saveToFirebase();
@@ -1451,7 +1438,6 @@
                     const existingAll = allSnap.val() || {};
                     const cachedStream = streamSnap.val() || {};
                     let currentGame = cachedStream.game || '';
-                    // Try to get current game from tracker context
                     if (!currentGame && this._broadcasterId) {
                         try {
                             const bt = await getBotToken();
@@ -1507,14 +1493,12 @@
                             updates[ap + 'categories/' + currentGame + '/lastSeen'] = Date.now();
                         }
                     }
-                    // Cache current stream game
                     if (currentGame) {
                         updates['stream-cache/' + channelLogin + '/game'] = currentGame;
                         updates['stream-cache/' + channelLogin + '/updatedAt'] = Date.now();
                     }
                     await db.ref().update(updates);
 
-                    // Save 15-min viewer snapshot
                     const now = Date.now();
                     if (!this._lastChunkTime || now - this._lastChunkTime > 900000) {
                         this._lastChunkTime = now;
@@ -2382,7 +2366,6 @@
                     });
                 }
 
-                // Fetch followers for all members in parallel
                 const modId = currentTwitchUser?.id || '';
                 const botToken = await getBotToken();
                 if (modId) {
@@ -2726,7 +2709,6 @@
 
         viewerList.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
 
-        // Check which viewers are currently watching any RGB streamer (from memory)
         const liveViewerIds = new Set();
         for (const m of allMembers) {
             const v = viewerTracker.viewers;
@@ -2840,7 +2822,6 @@
             const durHours = Math.floor(duration / 3600000);
             const durMin = Math.floor((duration % 3600000) / 60000);
 
-            // Try to get current Twitch info for this viewer
             let twitchInfo = null;
             const token = localStorage.getItem('twitchAccessToken');
             if (token && login) {
@@ -2861,7 +2842,6 @@
                 firstSeen, lastSeen
             });
 
-            // Check if viewer is currently in any live chat
             let isCurrentlyLive = false;
             let currentChannel = '';
             for (const m of allMembers) {
@@ -2872,7 +2852,6 @@
                 }
             }
 
-            // Map channels to their streamers info
             const channelDetails = await Promise.all(chList.map(async (ch) => {
                 const chData = channels[ch];
                 const member = allMembers.find(m => m.login.toLowerCase() === ch.toLowerCase());
@@ -3335,7 +3314,6 @@
 
             html += '</div>';
 
-            // Save to Firebase viewer-history + all-viewers
             const chLogin = found[0]?.member?.login || '';
             const game = found[0]?.member?.gameName || '';
             try {
@@ -3400,7 +3378,6 @@
     }));
     window.addEventListener('resize', drawChart);
 
-    // Auto-refresh every 30 seconds for all pages
     let refreshInterval = null;
 
     function startAutoRefresh() {
@@ -3432,7 +3409,6 @@
 
     setTimeout(startAutoRefresh, 5000);
 
-    // ─── Ctrl+I+9 Localhost Login ─────────────────────────────────
     const LOCALHOST_PASSWORD_KEY = 'localhostPass';
     const LOCALHOST_USER_KEY = 'localhostUser';
 
@@ -3447,7 +3423,6 @@
 
     document.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'I') {
-            // Store that I was pressed, wait for 9
             window._ctrlIPending = true;
             setTimeout(() => window._ctrlIPending = false, 1000);
         }
@@ -3507,7 +3482,6 @@
                 return;
             }
 
-            // Fake Twitch user object from DB data
             currentTwitchUser = {
                 login: login,
                 display_name: userData.displayName || login,
@@ -3575,7 +3549,6 @@
         container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка...</p>';
         container.scrollIntoView({behavior: 'smooth', block: 'start'});
 
-        // Fetch TwitchTracker via Worker endpoint (proxied + cached)
         const getTt = async () => {
             const workerUrl = await getBotWorkerUrl();
             if (workerUrl) {
@@ -3585,7 +3558,6 @@
                 } catch {
                 }
             }
-            // Fallback: direct (might be CORS-blocked)
             try {
                 const r = await fetch('https://twitchtracker.com/api/channels/summary/' + login);
                 if (r.ok) return r.json();
@@ -3593,7 +3565,6 @@
             }
             return null;
         };
-        // Use cached followers from openCreator (same as main page)
         const totalFollowersLive = _creatorFollowersCache[login] || 0;
         const getSubs = async () => {
             const token = localStorage.getItem('twitchAccessToken');
@@ -3638,7 +3609,6 @@
                         if (c.games) c.games.split(',').forEach(g => allGames.add(g.trim()));
                         csvDates.add(dateStr);
                     } else {
-                        // Worker/frontend 15-min snapshots
                         daySnapViewers.push(c.viewers || 0);
                         if ((c.viewers || 0) > daySnapPeak) daySnapPeak = c.viewers || 0;
                         totalMinutes += c.durationMins || 15;
@@ -3656,7 +3626,6 @@
                 }
                 if (csvDates.has(dateStr)) allDates.add(dateStr);
             }
-            // Merge stats from both sources
             if (!csvStreams && snapViewerSamples) {
                 maxPeakViewers = snapPeak;
                 sumAvgViewers = snapViewerSum;
@@ -3750,7 +3719,6 @@
         setActiveTab(login, 'avg');
         viewerTracker.stop();
         const safe = login.replace(/[^a-z0-9]/gi, '');
-        // Hide other containers
         const ve = document.getElementById('viewerAnalysis');
         if (ve) ve.style.display = 'none';
         const cal = document.getElementById('streamCalendarContainer_' + safe);
@@ -3799,7 +3767,6 @@
             html += '<button class="btn" onclick="renderAvgOnline(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄</button>';
             html += '</div>';
 
-            // Summary
             html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
             html += '<div class="metric"><p>📅 Дней со стримами</p><strong style="font-size:22px">' + totalDays + '</strong></div>';
             html += '<div class="metric"><p>📈 Средний онлайн</p><strong style="font-size:22px;color:#a855f7">' + overallAvg + '</strong></div>';
@@ -3807,7 +3774,6 @@
             html += '<div class="metric"><p>📅 Месяцев</p><strong style="font-size:22px">' + sortedMonths.length + '</strong></div>';
             html += '</div>';
 
-            // Chart by month
             if (sortedMonths.length) {
                 html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
                 html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 По месяцам</p>';
@@ -3834,7 +3800,6 @@
                 html += '</div>';
                 html += '</div>';
 
-                // Month grid
                 html += '<div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">';
                 for (const m of sortedMonths) {
                     const d = monthData[m];
@@ -3896,7 +3861,6 @@
         try {
             const now = new Date();
 
-            // Cache VODs per user (with pagination — fetches all pages)
             if (!_streamVodCache[login]) {
                 const token = localStorage.getItem('twitchAccessToken');
                 const botToken = await getBotToken();
@@ -3919,7 +3883,6 @@
             const {vods: allVods, live: liveStream} = _streamVodCache[login];
             const isLive = !!liveStream;
 
-            // Load stream-chunks dates from Firebase for this login
             let chunkDaysByMonth = {};
             try {
                 const chSnap = await db.ref('stream-chunks/' + login).once('value');
@@ -3933,7 +3896,6 @@
             } catch (e) {
             }
 
-            // Determine target month (default: current or last month with activity)
             if (!monthKey) {
                 const allMonths = new Set();
                 for (const vod of allVods) {
@@ -3946,7 +3908,6 @@
             }
             const [year, month] = monthKey.split('-').map(Number);
 
-            // Merge VOD days + chunk days for this month
             const daysWithActivity = new Set();
             const dayStats = {};
             for (const vod of allVods) {
@@ -3976,7 +3937,6 @@
                     };
                 });
             }
-            // Fill from stream-chunks for the month
             for (const dateStr of Object.keys(chunkDaysByMonth)) {
                 if (dateStr !== monthKey) continue;
                 const day = parseInt(dateStr.slice(8, 10), 10);
@@ -3993,12 +3953,10 @@
             const daysInMonth = new Date(year, month, 0).getDate();
             const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
-            // Prev/next months
             const prevM = month === 1 ? (year - 1) + '-12' : year + '-' + String(month - 1).padStart(2, '0');
             const nextM = month === 12 ? (year + 1) + '-01' : year + '-' + String(month + 1).padStart(2, '0');
             const hasPrev = year > 2020 || (year === 2020 && month > 1);
 
-            // Compute mini-calendar data from stream-chunks
             let mcData = {};
             try {
                 const mcSnap = await db.ref('stream-chunks/' + login + '/' + monthKey).once('value');
@@ -4019,7 +3977,6 @@
                 }
             }
 
-            // Find max values for color scaling
             let maxStreamMins = 0, maxAvgViewers = 0, maxPeakViewers = 0;
             for (const d of Object.keys(mcDays)) {
                 const sd = mcDays[d];
@@ -4053,7 +4010,6 @@
 
             let html = '<div class="page-card" style="margin-top:24px">';
 
-            // ── Channel info bar (SullyGnome style) ──
             html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:16px">';
             html += '<div><h2 style="font-size:24px">📅 Календарь стримов</h2>';
             html += '<p class="muted" style="font-size:12px">Статистика стримов по дням</p></div>';
@@ -4063,7 +4019,6 @@
             html += '<button class="btn" onclick="_streamVodCache[\'' + login + '\']=null;renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + monthKey + '\')" style="padding:6px 12px;font-size:12px">🔄</button>';
             html += '</div></div>';
 
-            // Live banner
             if (liveStream) {
                 html += '<div style="background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.25);border-radius:20px;padding:20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:16px">';
                 html += '<div style="width:12px;height:12px;border-radius:50%;background:#ef4444;animation:pulse 2s infinite"></div>';
@@ -4072,20 +4027,17 @@
                 html += '</div>';
             }
 
-            // ── Calendar description (SullyGnome style) ──
             html += '<div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid var(--border)">';
             html += 'Отображаются данные из stream-chunks (' + Object.keys(mcDays).length + ' дней с данными)' + (allVods.length ? ' и ' + allVods.length + ' VOD' : '') + '. ';
             html += 'Время начала и окончания могут отличаться до 15 минут. Нажмите на день с активностью для просмотра деталей.';
             html += '</div>';
 
-            // Month navigation
             html += '<div class="month-nav">';
             html += '<button onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + prevM + '\')" ' + (!hasPrev ? 'disabled style="opacity:.3"' : '') + '>←</button>';
             html += '<h3>' + monthNames[month - 1] + ' ' + year + '</h3>';
             html += '<button onclick="renderStreamCalendar(\'' + login + '\', \'' + userId + '\', \'' + nextM + '\')">→</button>';
             html += '</div>';
 
-            // Main calendar grid
             html += '<div style="background:rgba(255,255,255,.04);border-radius:20px;padding:16px;border:1px solid var(--border)">';
             html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">';
             html += ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => '<div style="font-size:10px;color:var(--muted);padding:4px 0;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.05em">' + d + '</div>').join('');
@@ -4120,7 +4072,6 @@
             html += '</div>';
             html += '</div>';
 
-            // Mini calendars (SullyGnome style)
             if (Object.keys(mcDays).length) {
                 html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:16px">';
                 html += renderMiniGrid('⏱ Время в эфире (мин)', 'totalMins');
@@ -4130,7 +4081,6 @@
             }
 
             html += '</div>';
-            // Detail section — outside .page-card so hiding calendar doesn't hide it
             html += '<div id="streamDayDetail" style="margin-top:16px"></div>';
             container.innerHTML = html;
         } catch (e) {
@@ -4146,7 +4096,6 @@
         const calContainer = document.getElementById('streamCalendarContainer_' + safe);
         const calPageCard = calContainer?.querySelector('.page-card');
 
-        // Hide calendar, show detail
         if (calPageCard) calPageCard.style.display = 'none';
 
         detailDiv.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка данных...</p>';
@@ -4188,7 +4137,6 @@
             const firstChunk = chunkTimestamps.length ? chunkData[chunkTimestamps[0]] : null;
             const firstGame = firstChunk?.game || '';
 
-            // Calculate performance vs all cached streams
             let perfClass = 'neutral', perfLabel = 'На уровне', trendClass = 'neutral', trendLabel = 'Стабильно';
             if (cached && cached.vods.length > 1) {
                 const allAvgs = cached.vods
@@ -4226,7 +4174,6 @@
 
             let html = '<div class="page-card" style="margin-top:0">';
 
-            // ── Header with back button ──
             html += '<div style="padding:0 0 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border)">';
             html += '<div><h2 style="font-size:22px">🎬 ' + String(day).padStart(2, '0') + '.' + String(month).padStart(2, '0') + '.' + year + '</h2>';
             html += '<p class="muted" style="font-size:12px">' + login + '</p></div>';
@@ -4234,7 +4181,6 @@
             html += '</div>';
 
             if (chunkTimestamps.length > 0 || vods.length > 0) {
-                // ── Meta strip ──
                 html += '<div style="display:flex;gap:0;flex-wrap:wrap;margin-top:16px;border-radius:12px;overflow:hidden;border:1px solid rgba(168,85,247,.1);background:rgba(255,255,255,.015)">';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Начало</p><b style="font-size:13px">' + (chunkTimestamps.length ? new Date(Number(chunkTimestamps[0])).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }) + ' (МСК)' : '—') + '</b></div>';
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center;border-right:1px solid rgba(168,85,247,.06)"><p class="muted" style="font-size:10px;text-transform:uppercase">Длительность</p><b style="font-size:13px">' + (durationMin >= 60 ? Math.floor(durationMin / 60) + 'ч ' + (durationMin % 60) + 'м' : durationMin + 'м') + '</b></div>';
@@ -4242,7 +4188,6 @@
                 html += '<div style="flex:1;min-width:100px;padding:10px 16px;text-align:center"><p class="muted" style="font-size:10px;text-transform:uppercase">Новые фоловеры</p><b style="font-size:13px;color:#4ade80">+' + followersGained + '</b></div>';
                 html += '</div>';
 
-                // ── Main stats panels ──
                 html += '<div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">';
                 html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
                 html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
@@ -4263,7 +4208,6 @@
                 html += '</div>';
                 html += '</div>';
 
-                // ── Game panels ──
                 const gameData = {};
                 for (const ts of chunkTimestamps) {
                     const c = chunkData[ts];
@@ -4292,7 +4236,6 @@
                     html += '</div>';
                 }
 
-                // ── Chart with tooltips ──
                 if (chunkTimestamps.length > 0) {
                     html += '<div style="margin-top:16px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border);position:relative">';
                     html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">📈 Зрители</p>';
@@ -4319,7 +4262,6 @@
                     html += '</div>';
                 }
 
-                // ── VOD list ──
                 if (vods.length > 0) {
                     html += '<div style="margin-top:16px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
                     html += '<p style="font-size:13px;font-weight:600;margin-bottom:12px">🎬 Записи стримов (' + vods.length + ')</p>';
@@ -4362,12 +4304,10 @@
             const pc = c.querySelector('.page-card');
             if (pc) pc.style.display = '';
         });
-        // Scroll back to calendar
         const calContainer = document.querySelector('[id^="streamCalendarContainer_"]');
         if (calContainer) calContainer.scrollIntoView({behavior: 'smooth', block: 'start'});
     }
 
-    // ── Bug Report ──
     function collectDeviceInfo() {
         const sc = screen;
         const ua = navigator.userAgent;
@@ -4396,7 +4336,6 @@
         info += 'Время: ' + now + '\n';
         info += 'Часовой пояс: ' + tz + '\n';
         info += 'Пользователь: ' + user + '\n';
-        // Fetch IP async
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => {
             const el = document.getElementById('bugDeviceInfo');
             if (el && el.textContent.includes('IP:')) return;
@@ -4506,7 +4445,6 @@
         }
     }
 
-    // ── Telegram config (Admin) ──
     async function getTgProxyUrl() {
         try {
             const snap = await db.ref('config/tg-proxy-url').once('value');
@@ -4578,7 +4516,6 @@
         }
     }
 
-    // ─── Moderator Reminder ──────────────────────────────────────────
     async function checkBotModeratorStatus() {
         if (!currentTwitchUser?.id) return;
         if (!currentUserRoles?.squad && !currentUserRoles?.academy) return;
@@ -4637,7 +4574,6 @@
         if (modal) modal.remove();
     }
 
-    // ─── Admin Impersonation ─────────────────────────────────────────
     async function showSimulateLogin() {
         const existing = document.getElementById('simulateModal');
         if (existing) existing.remove();

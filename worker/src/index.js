@@ -165,7 +165,6 @@ async function monitorStreams(env) {
   const d = new Date();
   const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
-  // Get squad members list from Firebase or KV cache
   let members = null;
   if (env.FIREBASE_DB_SECRET) {
     try {
@@ -178,8 +177,6 @@ async function monitorStreams(env) {
     } catch (e) { console.error('firebase squad read error:', e); }
   }
 
-  // Fallback: set FIREBASE_DB_SECRET secret to automatically load squad from Firebase
-  //   wrangler secret put FIREBASE_DB_SECRET
   if (!members || members.length === 0) {
     console.log('No squad list — set FIREBASE_DB_SECRET to read from Firebase');
     return [];
@@ -190,7 +187,6 @@ async function monitorStreams(env) {
 
   for (const member of members) {
     try {
-      // Resolve Twitch user ID if not cached
       let userId = member.id;
       if (!userId) {
         const uRes = await fetch(TWITCH_API + '/users?login=' + member.login, {
@@ -202,7 +198,6 @@ async function monitorStreams(env) {
         member.id = userId;
       }
 
-      // Check if currently live
       const sRes = await fetch(TWITCH_API + '/streams?user_id=' + userId, {
         headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
       });
@@ -218,7 +213,6 @@ async function monitorStreams(env) {
           updatedAt: now,
         };
 
-        // Save chunk to Firebase
         const chunkPath = 'stream-chunks/' + member.login + '/' + dateStr + '/' + now;
         await firebasePatch(env, chunkPath, chunk);
 
@@ -232,7 +226,6 @@ async function monitorStreams(env) {
     }
   }
 
-  // Update last-monitor timestamp
   await firebasePatch(env, 'stream-cache/_monitor', { lastRun: now, results });
 
   console.log('Monitor results:', JSON.stringify(results));
@@ -249,7 +242,6 @@ async function trackerSummary(url, env) {
     }
     return json(data, r.status);
   }
-  // No login — return cached data for all from Firebase
   if (!env.FIREBASE_DB_SECRET) return json({ error: 'no firebase' }, 400);
   const cached = await firebaseGet(env, 'twitch-tracker');
   return json(cached || {});
