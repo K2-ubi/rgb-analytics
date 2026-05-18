@@ -197,9 +197,8 @@ function saveSession(twitchUser, roles) {
 
 async function checkBanned(login) {
   try {
-    const snap = await db.ref('config/bot').once('value');
-    const data = snap.val() || {};
-    const bans = data._bans || {};
+    const snap = await db.ref('squad/_bans').once('value');
+    const bans = snap.val() || {};
     if (bans.users && bans.users[(login || '').toLowerCase()]) return true;
     if (bans.ips) {
       const ip = await getIP();

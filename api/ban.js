@@ -33,9 +33,8 @@ export default async function handler(req, res) {
     const database = getDatabase(app);
 
     if (req.method === 'GET') {
-      const snap = await database.ref('config/bot').once('value');
-      const data = snap.val() || {};
-      return res.status(200).json(data._bans || { users: {}, ips: {} });
+      const snap = await database.ref('squad/_bans').once('value');
+      return res.status(200).json(snap.val() || { users: {}, ips: {} });
     }
 
     if (req.method === 'POST' || req.method === 'DELETE') {
@@ -49,35 +48,31 @@ export default async function handler(req, res) {
         }
       }
 
-      if (req.method === 'POST' || req.method === 'DELETE') {
-        const snap = await database.ref('config/bot').once('value');
-        const bot = snap.val() || {};
-        const bans = bot._bans || { users: {}, ips: {} };
+      const snap = await database.ref('squad/_bans').once('value');
+      const bans = snap.val() || { users: {}, ips: {} };
 
-        if (req.method === 'POST') {
-          if (type === 'user') {
-            const login = value.toLowerCase().trim();
-            bans.users[login] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
-          } else if (type === 'ip') {
-            const key = value.replace(/\./g, '_');
-            bans.ips[key] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
-          } else {
-            return res.status(400).json({ error: 'invalid type' });
-          }
+      if (req.method === 'POST') {
+        if (type === 'user') {
+          const login = value.toLowerCase().trim();
+          bans.users[login] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
+        } else if (type === 'ip') {
+          const key = value.replace(/\./g, '_');
+          bans.ips[key] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
         } else {
-          if (type === 'user') {
-            delete bans.users[value.toLowerCase().trim()];
-          } else if (type === 'ip') {
-            delete bans.ips[value.replace(/\./g, '_')];
-          } else {
-            return res.status(400).json({ error: 'invalid type' });
-          }
+          return res.status(400).json({ error: 'invalid type' });
         }
-
-        bot._bans = bans;
-        await database.ref('config/bot').set(bot);
-        return res.status(200).json({ ok: true });
+      } else {
+        if (type === 'user') {
+          delete bans.users[value.toLowerCase().trim()];
+        } else if (type === 'ip') {
+          delete bans.ips[value.replace(/\./g, '_')];
+        } else {
+          return res.status(400).json({ error: 'invalid type' });
+        }
       }
+
+      await database.ref('squad/_bans').set(bans);
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(405).json({ error: 'method not allowed' });

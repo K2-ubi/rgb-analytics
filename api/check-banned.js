@@ -36,9 +36,8 @@ export default async function handler(req, res) {
     const db = getDatabase(app);
 
     const ipKey = ip.replace(/\./g, '_');
-    const snap = await db.ref('config/bot').once('value');
-    const data = snap.val() || {};
-    const bans = data._bans || {};
+    const snap = await db.ref('squad/_bans').once('value');
+    const bans = snap.val() || {};
     const userBanned = username ? !!(bans.users && bans.users[username]) : false;
     const ipBanned = !!(bans.ips && bans.ips[ipKey]);
 
