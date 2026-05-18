@@ -4,7 +4,6 @@ const TWITCH_API  = 'https://api.twitch.tv/helix';
 const ALLOWED_ORIGINS = [
   'https://rgb-analytics.vercel.app',
   'https://rgbsquad-892a2.firebaseapp.com',
-  'http://localhost:3000',
   'http://localhost:5173',
 ];
 
