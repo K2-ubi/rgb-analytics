@@ -154,15 +154,18 @@ function updateSquadNavButton() {
   const nav = document.querySelector('.nav');
   const existing = document.getElementById('squadSectionBtn');
   if (existing) existing.remove();
-  if (!currentUserRoles?.squad && !currentUserRoles?.academy) return;
-  const label = currentUserRoles?.squad ? '👥 Squad' : '🎓 Academy';
+  if (!currentUserRoles?.squad && !currentUserRoles?.academy && !isAdmin()) return;
+  const isSquadUser = currentUserRoles?.squad || (isAdmin() && !currentUserRoles?.academy);
+  const label = isSquadUser ? '👥 Squad' : '🎓 Academy';
+  const route = isSquadUser ? '/dashboard/squad' : '/dashboard/academy';
+  const page = isSquadUser ? 'squad' : 'academy';
   const btn = document.createElement('button');
   btn.id = 'squadSectionBtn';
   btn.textContent = label;
-  btn.dataset.page = 'squad';
+  btn.dataset.page = page;
   nav.appendChild(btn);
   btn.addEventListener('click', () => {
-    activeNav('squad');
-    navigate('/dashboard');
+    activeNav(page);
+    navigate(route);
   });
 }

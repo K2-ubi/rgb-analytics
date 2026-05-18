@@ -95,6 +95,21 @@ function renderAdminPanel() {
         <div id="userList"></div>
       </div>
       <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+        <p class="muted" style="margin-bottom:12px">⛔ Бан-лист (хранится в Firebase)</p>
+        <div style="display:grid;gap:12px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <input type="text" id="banUsername" placeholder="Twitch логин для бана" style="flex:1;min-width:160px;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+            <button class="btn" onclick="banUser()" style="border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#fca5a5">🔨 Забанить логин</button>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <input type="text" id="banIP" placeholder="IP адрес для бана (напр. 192.168.1.1)" style="flex:1;min-width:160px;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+            <button class="btn" onclick="banIP()" style="border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#fca5a5">🔨 Забанить IP</button>
+          </div>
+          <div id="banStatus" class="muted" style="font-size:13px"></div>
+          <div id="bannedList" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
         <p class="muted" style="margin-bottom:12px">🔄 Симуляция входа</p>
         <div style="display:grid;gap:12px">
           <p style="font-size:13px;color:var(--muted);line-height:1.5">Войди под любым пользователем из базы чтобы увидеть дашборд его глазами. Для возврата нажми «Вернуться на свой аккаунт» в сайдбаре или выйди и зайди снова.</p>
@@ -105,6 +120,7 @@ function renderAdminPanel() {
     </div>`;
   showAdminPage();
   loadUsersList();
+  loadBannedList();
   loadBotConfig();
 }
 
@@ -130,6 +146,90 @@ async function loadUsersList() {
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.055);margin-top:8px"><div><b>' + login + '</b><p class="muted" style="font-size:13px">' + (u.displayName || '') + '</p></div><div style="display:flex;gap:6px">' + (tags.length ? tags.join('') : '<span class="tag">user</span>') + '</div></div>';
     }).join('');
   } catch (e) { el.innerHTML = '<p class="muted">Ошибка загрузки</p>'; }
+}
+
+async function loadBannedList() {
+  const el = document.getElementById('bannedList');
+  if (!el) return;
+  try {
+    const [usersSnap, ipsSnap] = await Promise.all([
+      db.ref('banned/users').once('value'),
+      db.ref('banned/ips').once('value')
+    ]);
+    const bannedUsers = usersSnap.val() || {};
+    const bannedIps = ipsSnap.val() || {};
+    const userEntries = Object.entries(bannedUsers);
+    const ipEntries = Object.entries(bannedIps);
+    if (!userEntries.length && !ipEntries.length) {
+      el.innerHTML = '<p class="muted" style="padding:12px 0">⛔ Нет забаненных пользователей</p>';
+      return;
+    }
+    let html = '<div style="display:grid;gap:8px">';
+    for (const [login, data] of userEntries) {
+      const info = data && typeof data === 'object' ? data : { bannedAt: 0 };
+      const time = info.bannedAt ? new Date(info.bannedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15)"><div><b style="color:#fca5a5">@' + login + '</b><p class="muted" style="font-size:12px">забанен ' + time + '</p></div><button class="btn" onclick="unbanUser(\'' + login + '\')" style="padding:6px 12px;font-size:12px;border-color:rgba(239,68,68,.3)">✕ Разбанить</button></div>';
+    }
+    for (const [ip, data] of ipEntries) {
+      const info = data && typeof data === 'object' ? data : { bannedAt: 0 };
+      const time = info.bannedAt ? new Date(info.bannedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+      const displayIp = ip.replace(/_/g, '.');
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.1)"><div><span style="color:#fca5a5;font-family:monospace">🌐 ' + displayIp + '</span><p class="muted" style="font-size:12px">забанен ' + time + '</p></div><button class="btn" onclick="unbanIP(\'' + ip + '\')" style="padding:6px 12px;font-size:12px;border-color:rgba(239,68,68,.3)">✕ Разбанить</button></div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = '<p class="muted">Ошибка загрузки банов</p>'; }
+}
+
+async function banUser() {
+  const input = document.getElementById('banUsername');
+  const status = document.getElementById('banStatus');
+  const login = input?.value.trim().toLowerCase();
+  if (!login) { status.textContent = '❌ Введи логин'; return; }
+  try {
+    const existing = await db.ref('banned/users/' + login).once('value');
+    if (existing.val()) { status.textContent = '⚠️ @' + login + ' уже в бане'; return; }
+    await db.ref('banned/users/' + login).set({ bannedAt: Date.now(), bannedBy: currentTwitchUser?.login || 'admin' });
+    status.textContent = '✅ @' + login + ' забанен';
+    input.value = '';
+    loadBannedList();
+  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
+}
+
+async function unbanUser(login) {
+  const status = document.getElementById('banStatus');
+  try {
+    await db.ref('banned/users/' + login).remove();
+    status.textContent = '✅ @' + login + ' разбанен';
+    loadBannedList();
+  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
+}
+
+async function banIP() {
+  const input = document.getElementById('banIP');
+  const status = document.getElementById('banStatus');
+  const ip = input?.value.trim();
+  if (!ip) { status.textContent = '❌ Введи IP адрес'; return; }
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) { status.textContent = '❌ Неверный формат IP (напр. 192.168.1.1)'; return; }
+  const key = ip.replace(/\./g, '_');
+  try {
+    const existing = await db.ref('banned/ips/' + key).once('value');
+    if (existing.val()) { status.textContent = '⚠️ IP ' + ip + ' уже в бане'; return; }
+    await db.ref('banned/ips/' + key).set({ bannedAt: Date.now(), bannedBy: currentTwitchUser?.login || 'admin' });
+    status.textContent = '✅ IP ' + ip + ' забанен';
+    input.value = '';
+    loadBannedList();
+  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
+}
+
+async function unbanIP(key) {
+  const status = document.getElementById('banStatus');
+  try {
+    await db.ref('banned/ips/' + key).remove();
+    const displayIp = key.replace(/_/g, '.');
+    status.textContent = '✅ IP ' + displayIp + ' разбанен';
+    loadBannedList();
+  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
 }
 
 async function assignRole() {

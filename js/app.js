@@ -11,6 +11,7 @@ const PAGE_ROUTES = {
   'home': '/dashboard',
   'me': '/dashboard/ya',
   'squad': '/dashboard/squad',
+  'academy': '/dashboard/academy',
   'viewers': '/dashboard/viewers',
   'checkuser': '/dashboard/checkuser',
   'watching': '/dashboard/watching',
@@ -75,13 +76,7 @@ document.querySelectorAll('.nav button').forEach(b => b.addEventListener('click'
   activeNav(b.dataset.page);
   const route = PAGE_ROUTES[b.dataset.page];
   if (route) navigate(route);
-  else if (b.dataset.page === 'squad') {
-    const group = getMySquadGroup();
-    if (group) navigate('/dashboard/squad');
-    else navigate('/dashboard');
-  } else {
-    navigate('/dashboard');
-  }
+  else navigate('/dashboard');
 }));
 
 window.addEventListener('resize', drawChart);

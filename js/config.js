@@ -15,7 +15,6 @@ const authReady = firebase.auth().signInAnonymously()
   .catch(e => console.warn('Firebase anonymous auth failed:', e));
 
 const TWITCH_CLIENT_ID = 'a26lg52682u7ja24bam0p8lnahs7lg';
-const WORKER_CHECK_PATH = '/api/check-banned';
 const CACHE_TTL = 20000;
 const BOT_CACHE_TTL = 60000;
 const BOT_INFO_TTL = 120000;

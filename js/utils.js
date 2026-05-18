@@ -16,6 +16,14 @@ function hasRole(role) {
   return currentUserRoles && currentUserRoles[role] === true;
 }
 
+function isSquad() {
+  return currentUserRoles && currentUserRoles.squad === true;
+}
+
+function isAcademy() {
+  return currentUserRoles && currentUserRoles.academy === true;
+}
+
 function rolesDisplay() {
   const labels = [];
   if (currentUserRoles?.admin) labels.push('Admin');

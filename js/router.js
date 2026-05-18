@@ -4,7 +4,8 @@ const ROUTES = {
   '/dashboard/home': { render: 'renderHome', auth: true },
   '/dashboard/ya': { render: 'renderMyProfile', auth: true },
   '/dashboard/me': { render: 'renderMyProfile', auth: true },
-  '/dashboard/squad': { render: 'renderSquad', auth: true },
+  '/dashboard/squad': { render: 'renderSquad', auth: true, role: 'squad' },
+  '/dashboard/academy': { render: 'renderAcademy', auth: true, role: 'academy' },
   '/dashboard/viewers': { render: 'renderViewersPage', auth: true },
   '/dashboard/checkuser': { render: 'renderCheckUser', auth: true },
   '/dashboard/watching': { render: 'renderWatching', auth: true },
@@ -23,13 +24,10 @@ async function checkBannedCached(login) {
   const now = Date.now();
   if (_bannedCache !== null && now - _bannedCacheTime < BANNED_CACHE_TTL) return _bannedCache;
   try {
-    const r = await fetch('/api/check-banned?username=' + encodeURIComponent(login || ''));
-    if (r.ok) {
-      const d = await r.json();
-      _bannedCache = d.banned;
-      _bannedCacheTime = now;
-      return d.banned;
-    }
+    const snap = await db.ref('banned/users/' + (login || '').toLowerCase()).once('value');
+    _bannedCache = snap.val() ? true : false;
+    _bannedCacheTime = now;
+    return _bannedCache;
   } catch (e) {}
   return false;
 }
@@ -82,6 +80,13 @@ async function routeGuard(path) {
       return false;
     }
 
+    if (route.role && !isAdmin()) {
+      if (!currentUserRoles || !currentUserRoles[route.role]) {
+        navigate('/dashboard', true);
+        return false;
+      }
+    }
+
     if (route.auth && currentTwitchUser) {
       const banned = await checkBannedCached(currentTwitchUser.login);
       if (banned) {
@@ -119,6 +124,7 @@ const PATH_TO_PAGE = {
   '/dashboard/ya': 'me',
   '/dashboard/me': 'me',
   '/dashboard/squad': 'squad',
+  '/dashboard/academy': 'academy',
   '/dashboard/viewers': 'viewers',
   '/dashboard/checkuser': 'checkuser',
   '/dashboard/watching': 'watching',
@@ -202,9 +208,11 @@ function renderBannedPage() {
 }
 
 function renderSquad() {
-  const group = getMySquadGroup();
-  if (group) openSquad(group);
-  else renderHome();
+  openSquad('squad');
+}
+
+function renderAcademy() {
+  openSquad('academy');
 }
 
 function renderWatching() {
