@@ -195,19 +195,13 @@ function saveSession(twitchUser, roles) {
   localStorage.setItem('twitchUserId', twitchUser.id);
 }
 
-function ipKey(ip) {
-  return ip.replace(/\./g, '_');
-}
-
 async function checkBanned(login) {
   try {
-    const userSnap = await db.ref('banned/users/' + (login || '').toLowerCase()).once('value');
-    if (userSnap.val()) return true;
-  } catch (e) {}
-  try {
-    const ip = await getIP();
-    const ipSnap = await db.ref('banned/ips/' + ipKey(ip)).once('value');
-    if (ipSnap.val()) return true;
+    const r = await fetch('/api/check-banned?username=' + encodeURIComponent(login || ''));
+    if (r.ok) {
+      const d = await r.json();
+      if (d.banned) return true;
+    }
   } catch (e) {}
   return false;
 }
