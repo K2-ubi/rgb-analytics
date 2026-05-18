@@ -15,8 +15,6 @@ id = "9b97fb1e48274d629462f53498541224"
 [vars]
 REDIRECT_URI = "https://gentle-smoke-7903.konstasil777.workers.dev/api/callback"
 WORKER_URL = "https://gentle-smoke-7903.konstasil777.workers.dev"
-FIREBASE_DB_URL = "https://rgb-analytics-default-rtdb.firebaseio.com"
-TWITCH_CLIENT_ID = "nvbp7ivyet47jxun4efsk3v803px73"
 
 [triggers]
 crons = ["0 */3 * * *", "*/15 * * * *"]

@@ -1,29 +1,44 @@
 const TWITCH_TOKEN = 'https://id.twitch.tv/oauth2/token';
 const TWITCH_API  = 'https://api.twitch.tv/helix';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
+const ALLOWED_ORIGINS = [
+  'https://rgb-analytics.vercel.app',
+  'https://rgbsquad-892a2.firebaseapp.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
+
+const CORS = (origin) => ({
+  'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : 'https://rgb-analytics.vercel.app',
   'Access-Control-Allow-Methods': 'GET, OPTIONS, POST',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Auth-Secret',
   'X-Content-Type-Options': 'nosniff',
-};
+  'X-Frame-Options': 'DENY',
+});
 
 export default {
   async fetch(request, env) {
-    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
+    const origin = request.headers.get('Origin') || '';
+    const corsHeaders = CORS(origin);
+    if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
     const url = new URL(request.url);
     try {
       switch (url.pathname) {
-        case '/api/auth': return auth(env);
-        case '/api/callback': return callback(url, env);
-        case '/api/status': return status(env);
-        case '/api/bot-info': return botInfo(env);
-        case '/api/monitor-streams': return monitorStreams(env);
-        case '/api/tracker-summary': return trackerSummary(url, env);
-        default: return json({ error: 'not found' }, 404);
+        case '/api/auth': return auth(env, corsHeaders);
+        case '/api/callback': return callback(url, env, corsHeaders);
+        case '/api/status': return status(env, corsHeaders);
+        case '/api/twitch/users': return proxyAsBot(url, env, '/users', corsHeaders);
+        case '/api/twitch/streams': return proxyAsBot(url, env, '/streams', corsHeaders);
+        case '/api/twitch/chatters': return proxyAsBot(url, env, '/chat/chatters', corsHeaders);
+        case '/api/twitch/followers': return proxyAsBot(url, env, '/channels/followers', corsHeaders);
+        case '/api/twitch/subscriptions': return proxyAsBot(url, env, '/subscriptions', corsHeaders);
+        case '/api/twitch/videos': return proxyAsBot(url, env, '/videos', corsHeaders);
+        case '/api/monitor-streams': return requireSecret(env, request) ? monitorStreams(env) : json({ error: 'forbidden' }, 403, corsHeaders);
+        case '/api/tracker-summary': return trackerSummary(url, env, corsHeaders);
+        default: return json({ error: 'not found' }, 404, corsHeaders);
       }
     } catch (e) {
-      return json({ error: e.message }, 500);
+      return json({ error: e.message }, 500, corsHeaders);
     }
   },
   async scheduled(_event, env) {
@@ -32,6 +47,12 @@ export default {
     await fetchTrackerData(env);
   },
 };
+
+function requireSecret(env, request) {
+  const secret = request.headers.get('X-Auth-Secret');
+  if (!secret || secret !== env.FIREBASE_DB_SECRET) return false;
+  return true;
+}
 
 async function getToken(env) {
   let at = await env.KV.get('access_token');
@@ -69,18 +90,18 @@ async function saveInfo(env, token) {
   }
 }
 
-function auth(env) {
+function auth(env, _corsHeaders) {
   const p = new URLSearchParams({
     client_id: env.TWITCH_CLIENT_ID,
     redirect_uri: env.REDIRECT_URI,
     response_type: 'code',
-    scope: 'moderator:read:chatters moderator:read:followers',
+    scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions',
     force_verify: 'true',
   });
   return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
 }
 
-async function callback(url, env) {
+async function callback(url, env, _corsHeaders) {
   const code = url.searchParams.get('code');
   if (!code) return html('Ошибка: ' + (url.searchParams.get('error') || 'unknown'));
   const r = await fetch(TWITCH_TOKEN, {
@@ -102,39 +123,22 @@ async function callback(url, env) {
   return html(login + ' ✅ авторизован!<br><span style="font-size:14px">Закрой окно → в админке нажми Статус</span>', true);
 }
 
-async function proxy(url, env, path) {
-  const token = await getToken(env);
-  const q = new URLSearchParams(url.search);
-  const r = await fetch(TWITCH_API + path + '?' + q, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
-  });
-  return json(await r.json(), r.status);
-}
-
-async function proxyAsBot(url, env, path) {
+async function proxyAsBot(url, env, path, corsHeaders) {
   const token = await getToken(env);
   const q = new URLSearchParams(url.search);
   const botId = await env.KV.get('bot_id');
-  if (botId) q.set('moderator_id', botId);
+  if (botId && path === '/chat/chatters') q.set('moderator_id', botId);
   const r = await fetch(TWITCH_API + path + '?' + q, {
     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
   });
-  return json(await r.json(), r.status);
-}
-
-async function botInfo(env) {
-  const token = await getToken(env);
-  return json({
-    token,
-    client_id: env.TWITCH_CLIENT_ID,
-    login: await env.KV.get('bot_login'),
-    display: await env.KV.get('bot_display'),
-    id: await env.KV.get('bot_id'),
-    expires_at: parseInt(await env.KV.get('expires_at') || '0'),
+  const data = await r.json();
+  return new Response(JSON.stringify(data), {
+    status: r.status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
 
-async function status(env) {
+async function status(env, corsHeaders) {
   const exp = parseInt(await env.KV.get('expires_at') || '0');
   return json({
     configured: !!(await env.KV.get('access_token')),
@@ -142,7 +146,7 @@ async function status(env) {
     bot_display: await env.KV.get('bot_display'),
     expires_at: exp,
     expires_in: Math.max(0, Math.floor((exp - Date.now()) / 1000)),
-  });
+  }, 200, corsHeaders);
 }
 
 async function firebaseGet(env, path) {
@@ -232,7 +236,7 @@ async function monitorStreams(env) {
   return results;
 }
 
-async function trackerSummary(url, env) {
+async function trackerSummary(url, env, corsHeaders) {
   const login = url.searchParams.get('login');
   if (login) {
     const r = await fetch('https://twitchtracker.com/api/channels/summary/' + login);
@@ -240,11 +244,11 @@ async function trackerSummary(url, env) {
     if (r.ok && Object.keys(data).length && env.FIREBASE_DB_SECRET) {
       await firebasePatch(env, 'twitch-tracker/' + login, { ...data, updatedAt: Date.now() });
     }
-    return json(data, r.status);
+    return json(data, r.status, corsHeaders);
   }
-  if (!env.FIREBASE_DB_SECRET) return json({ error: 'no firebase' }, 400);
+  if (!env.FIREBASE_DB_SECRET) return json({ error: 'no firebase' }, 400, corsHeaders);
   const cached = await firebaseGet(env, 'twitch-tracker');
-  return json(cached || {});
+  return json(cached || {}, 200, corsHeaders);
 }
 
 async function fetchTrackerData(env) {
@@ -283,9 +287,9 @@ async function fetchTrackerData(env) {
   return results;
 }
 
-function json(data, s = 200) {
+function json(data, s = 200, corsHeaders) {
   return new Response(JSON.stringify(data), {
-    status: s, headers: { ...CORS, 'Content-Type': 'application/json' },
+    status: s, headers: { ...corsHeaders || CORS(''), 'Content-Type': 'application/json' },
   });
 }
 

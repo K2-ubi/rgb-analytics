@@ -882,8 +882,33 @@
 
 <script>
     const TWITCH_CLIENT_ID = 'a26lg52682u7ja24bam0p8lnahs7lg';
+    const WORKER_CHECK_PATH = '/api/check-banned';
     let TG_PROXY_URL = '/api/telegram';
     let _tgChatIds = [];
+
+    let _workerUrl = null;
+    async function getWorkerUrl() {
+      if (_workerUrl) return _workerUrl;
+      const cfg = await getBotConfig();
+      _workerUrl = cfg.workerUrl ? cfg.workerUrl.replace(/\/$/, '') : null;
+      return _workerUrl;
+    }
+
+    async function twitchApiFetch(path, params) {
+      const wu = await getWorkerUrl();
+      if (wu) {
+        const url = wu + '/api/twitch/' + path + (params ? '?' + new URLSearchParams(params) : '');
+        const res = await fetch(url);
+        return res.ok ? res.json() : null;
+      }
+      const token = localStorage.getItem('twitchAccessToken');
+      if (!token) return null;
+      const qs = params ? '?' + new URLSearchParams(params) : '';
+      const res = await fetch('https://api.twitch.tv/helix/' + path + qs, {
+        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+      });
+      return res.ok ? res.json() : null;
+    }
 
     async function getTgChatIds() {
         if (_tgChatIds.length) return _tgChatIds;
@@ -942,13 +967,13 @@
         if (!workerUrl) return null;
         if (_botInfoCache && Date.now() - _botInfoTime < BOT_INFO_TTL) return _botInfoCache;
         try {
-            const res = await fetch(workerUrl + '/api/bot-info');
+            const res = await fetch(workerUrl + '/api/status');
             if (!res.ok) return null;
             const d = await res.json();
-            if (!d.token) return null;
-            _botInfoCache = d;
+            if (!d.configured) return null;
+            _botInfoCache = { configured: true, login: d.bot_login, display: d.bot_display, id: null, token: null };
             _botInfoTime = Date.now();
-            return d;
+            return _botInfoCache;
         } catch {
             return null;
         }
@@ -1051,6 +1076,7 @@
             restoreAdminAccount();
             return;
         }
+        if (typeof clearRouteCache === 'function') clearRouteCache();
         localStorage.removeItem('twitchAccessToken');
         localStorage.removeItem('twitchUserLogin');
         localStorage.removeItem('twitchUserRoles');
@@ -1071,7 +1097,8 @@
         const b = document.getElementById('adminNavBtn');
         if (b) b.remove();
         updateSquadNavButton();
-        window.location.hash = '';
+        history.pushState(null, '', '/');
+    
     }
 
     function restoreSession() {
@@ -1102,6 +1129,17 @@
         localStorage.setItem('twitchUserId', twitchUser.id);
     }
 
+    async function checkBanned(login) {
+        try {
+            const r = await fetch(WORKER_CHECK_PATH + '?username=' + encodeURIComponent(login || ''));
+            if (r.ok) {
+                const d = await r.json();
+                if (d.banned) return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
     async function checkTwitchAuth() {
         if (localStorage.getItem('isImpersonating') === 'true') {
             return restoreSession();
@@ -1114,6 +1152,7 @@
             if (token) {
                 localStorage.setItem('twitchAccessToken', token);
                 window.location.hash = '';
+                history.replaceState(null, '', window.location.pathname);
             }
         }
         if (!token) {
@@ -1135,6 +1174,12 @@
 
             currentTwitchUser = twitchUser;
 
+            const banned = await checkBanned(twitchUser.login);
+            if (banned) {
+                navigate('/banned', true);
+                return false;
+            }
+
             const snap = await db.ref('twitch-users/' + twitchUser.login.toLowerCase()).once('value');
             const userData = snap.val();
 
@@ -1143,7 +1188,7 @@
                     <div class="logo" style="width: 80px; height: 80px;"></div>
                     <h1 style="font-size: 24px; text-align: center;">Мне кажется<br>Вам сюда нельзя</h1>
                     <p class="muted" style="text-align: center; max-width: 300px;">Ваш Twitch аккаунт <b>${twitchUser.login}</b> не найден в базе RGB Network.</p>
-                    <button class="btn" onclick="location.reload()">Назад</button>
+                    <button class="btn" onclick="navigate('/')">Назад</button>
                 `;
                 return false;
             }
@@ -1177,6 +1222,15 @@
             TG_PROXY_URL = await getTgProxyUrl();
             const app = document.getElementById('app');
             const authBlock = document.getElementById('authBlock');
+            const path = window.location.pathname;
+
+            if (path === '/banned') {
+                app.classList.remove('authorized');
+                authBlock.style.display = 'none';
+                navigate('/banned', true);
+                return;
+            }
+
             const hasHash = window.location.hash.includes('access_token');
             const hasToken = !!localStorage.getItem('twitchAccessToken');
 
@@ -1184,37 +1238,34 @@
                 authBlock.innerHTML = '<div class="logo" style="width:80px;height:80px;margin:0 auto"></div><p class="muted" style="text-align:center;margin-top:20px">Авторизация…</p>';
             }
 
-            if (!hasHash && restoreSession() && hasToken) {
-                app.classList.add('authorized');
-                authBlock.style.display = 'none';
-                renderSidebarUser();
-                renderHome();
-                renderAdminButton();
-                updateSquadNavButton();
-            }
-
-            const ok = await checkTwitchAuth();
-            if (ok) {
-                app.classList.add('authorized');
-                authBlock.style.display = 'none';
-                await renderHome();
-                renderAdminButton();
-                renderSidebarUser();
-                updateSquadNavButton();
-            } else if (!restoreSession() || !hasToken) {
+            if (hasHash || (!restoreSession() || !hasToken)) {
+                const ok = await checkTwitchAuth();
+                if (ok) {
+                    app.classList.add('authorized');
+                    authBlock.style.display = 'none';
+                    renderAdminButton();
+                    renderSidebarUser();
+                    updateSquadNavButton();
+                    checkBotModeratorStatus();
+                    navigate('/dashboard', true);
+                    return;
+                }
                 app.classList.remove('authorized');
                 authBlock.style.display = 'flex';
+                return;
             }
 
-            if (app.classList.contains('authorized')) {
-                checkBotModeratorStatus();
-            }
+            app.classList.add('authorized');
+            authBlock.style.display = 'none';
+            renderAdminButton();
+            renderSidebarUser();
+            updateSquadNavButton();
+            checkBotModeratorStatus();
+            navigate(path || '/dashboard', true);
         } catch (e) {
             console.error('initApp error:', e);
         }
     }
-
-    initApp();
 
     function isAdmin() {
         return currentUserRoles && currentUserRoles.admin === true;
@@ -2087,7 +2138,7 @@
                 nav.appendChild(btn);
                 btn.addEventListener('click', () => {
                     activeNav('admin');
-                    renderAdminPanel();
+                    navigate('/admin');
                 });
             }
         } else {
@@ -3512,20 +3563,30 @@
         btn.classList.toggle('hidden', !group);
     }
 
+    const PAGE_ROUTES = {
+        'home': '/dashboard',
+        'me': '/dashboard/ya',
+        'squad': '/dashboard/squad',
+        'viewers': '/dashboard/viewers',
+        'checkuser': '/dashboard/checkuser',
+        'watching': '/dashboard/watching',
+        'similar': '/dashboard/similar',
+    };
+
     document.querySelectorAll('.nav button').forEach(b => b.addEventListener('click', () => {
         viewerTracker.stop();
         currentViewerProfileId = null;
         currentOpenCreator = null;
         activeNav(b.dataset.page);
-        if (b.dataset.page === 'home') renderHome();
-        else if (b.dataset.page === 'me') renderMyProfile();
+        const route = PAGE_ROUTES[b.dataset.page];
+        if (route) navigate(route);
         else if (b.dataset.page === 'squad') {
             const group = getMySquadGroup();
-            if (group) openSquad(group);
-            else renderHome();
-        } else if (b.dataset.page === 'viewers') renderViewersPage();
-        else if (b.dataset.page === 'checkuser') renderCheckUser();
-        else renderInfo(b.dataset.page);
+            if (group) navigate('/dashboard/squad');
+            else navigate('/dashboard');
+        } else {
+            navigate('/dashboard');
+        }
     }));
     window.addEventListener('resize', drawChart);
 
@@ -4849,5 +4910,6 @@
     }
 
 </script>
+<script src="js/router.js"></script>
 </body>
 </html>

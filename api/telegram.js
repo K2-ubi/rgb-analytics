@@ -1,13 +1,21 @@
 const ALLOWED_METHODS = ['sendMessage', 'sendPhoto'];
-const ALLOWED_CHAT_IDS = []; // Оставь пустым - будет брать из TG_CHAT_ALLOWED env
+const ALLOWED_CHAT_IDS = [];
 const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
 const TG_CHAT_ALLOWED = (process.env.TG_CHAT_ALLOWED || '').split(',').map(s => s.trim()).filter(Boolean);
 const BANNED_IPS = (process.env.BANNED_IPS || '').split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_ORIGINS = [
+  'https://rgb-analytics.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const isAllowedOrigin = ALLOWED_ORIGINS.some(o => origin.startsWith(o));
+  res.setHeader('Access-Control-Allow-Origin', isAllowedOrigin ? origin : 'https://rgb-analytics.vercel.app');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
