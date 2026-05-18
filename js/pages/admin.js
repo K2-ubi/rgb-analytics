@@ -148,39 +148,42 @@ async function loadUsersList() {
   } catch (e) { el.innerHTML = '<p class="muted">Ошибка загрузки</p>'; }
 }
 
-function ipKey(ip) {
-  return ip.replace(/\./g, '_');
+async function getBans() {
+  try {
+    const snap = await db.ref('config/bans').once('value');
+    return snap.val() || { users: {}, ips: {} };
+  } catch { return { users: {}, ips: {} }; }
+}
+
+async function saveBans(data) {
+  try {
+    await db.ref('config/bans').set(data);
+    return true;
+  } catch { return false; }
 }
 
 async function loadBannedList() {
   const el = document.getElementById('bannedList');
   if (!el) return;
-  try {
-    const [usersSnap, ipsSnap] = await Promise.all([
-      db.ref('config/banned/users').once('value'),
-      db.ref('config/banned/ips').once('value')
-    ]);
-    const bannedUsers = usersSnap.val() || {};
-    const bannedIps = ipsSnap.val() || {};
-    const userEntries = Object.entries(bannedUsers);
-    const ipEntries = Object.entries(bannedIps);
-    if (!userEntries.length && !ipEntries.length) {
-      el.innerHTML = '<p class="muted" style="padding:12px 0">⛔ Нет забаненных пользователей</p>';
-      return;
-    }
-    let html = '<div style="display:grid;gap:8px">';
-    for (const [login, info] of userEntries) {
-      const time = info.bannedAt ? new Date(info.bannedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15)"><div><b style="color:#fca5a5">@' + login + '</b><p class="muted" style="font-size:12px">забанен ' + time + '</p></div><button class="btn" onclick="unbanUser(\'' + login + '\')" style="padding:6px 12px;font-size:12px;border-color:rgba(239,68,68,.3)">✕ Разбанить</button></div>';
-    }
-    for (const [ip, info] of ipEntries) {
-      const time = info.bannedAt ? new Date(info.bannedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
-      const displayIp = ip.replace(/_/g, '.');
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.1)"><div><span style="color:#fca5a5;font-family:monospace">🌐 ' + displayIp + '</span><p class="muted" style="font-size:12px">забанен ' + time + '</p></div><button class="btn" onclick="unbanIP(\'' + ip + '\')" style="padding:6px 12px;font-size:12px;border-color:rgba(239,68,68,.3)">✕ Разбанить</button></div>';
-    }
-    html += '</div>';
-    el.innerHTML = html;
-  } catch (e) { el.innerHTML = '<p class="muted">Ошибка загрузки банов</p>'; }
+  const bans = await getBans();
+  const userEntries = Object.entries(bans.users);
+  const ipEntries = Object.entries(bans.ips);
+  if (!userEntries.length && !ipEntries.length) {
+    el.innerHTML = '<p class="muted" style="padding:12px 0">⛔ Нет забаненных пользователей</p>';
+    return;
+  }
+  let html = '<div style="display:grid;gap:8px">';
+  for (const [login, info] of userEntries) {
+    const time = info.bannedAt ? new Date(info.bannedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15)"><div><b style="color:#fca5a5">@' + login + '</b><p class="muted" style="font-size:12px">забанен ' + time + '</p></div><button class="btn" onclick="unbanUser(\'' + login + '\')" style="padding:6px 12px;font-size:12px;border-color:rgba(239,68,68,.3)">✕ Разбанить</button></div>';
+  }
+  for (const [ip, info] of ipEntries) {
+    const time = info.bannedAt ? new Date(info.bannedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+    const displayIp = ip.replace(/_/g, '.');
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.1)"><div><span style="color:#fca5a5;font-family:monospace">🌐 ' + displayIp + '</span><p class="muted" style="font-size:12px">забанен ' + time + '</p></div><button class="btn" onclick="unbanIP(\'' + ip + '\')" style="padding:6px 12px;font-size:12px;border-color:rgba(239,68,68,.3)">✕ Разбанить</button></div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
 }
 
 async function banUser() {
@@ -188,31 +191,29 @@ async function banUser() {
   const status = document.getElementById('banStatus');
   const login = input?.value.trim().toLowerCase();
   if (!login) { status.textContent = '❌ Введи логин'; return; }
-  try {
-    const r = await fetch('/api/ban', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'user', value: login, bannedBy: currentTwitchUser?.login || '' })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+  const bans = await getBans();
+  if (bans.users[login]) { status.textContent = '⚠️ @' + login + ' уже в бане'; return; }
+  bans.users[login] = { bannedAt: Date.now(), bannedBy: currentTwitchUser?.login || 'admin' };
+  if (await saveBans(bans)) {
     status.textContent = '✅ @' + login + ' забанен';
     input.value = '';
     loadBannedList();
-  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
+  } else {
+    status.textContent = '❌ Ошибка записи в Firebase';
+  }
 }
 
 async function unbanUser(login) {
   const status = document.getElementById('banStatus');
-  try {
-    const r = await fetch('/api/ban', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'user', value: login, bannedBy: currentTwitchUser?.login || '' })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+  const bans = await getBans();
+  if (!bans.users[login]) { status.textContent = '⚠️ @' + login + ' не в бане'; return; }
+  delete bans.users[login];
+  if (await saveBans(bans)) {
     status.textContent = '✅ @' + login + ' разбанен';
     loadBannedList();
-  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
+  } else {
+    status.textContent = '❌ Ошибка записи в Firebase';
+  }
 }
 
 async function banIP() {
@@ -221,32 +222,31 @@ async function banIP() {
   const ip = input?.value.trim();
   if (!ip) { status.textContent = '❌ Введи IP адрес'; return; }
   if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) { status.textContent = '❌ Неверный формат IP (напр. 192.168.1.1)'; return; }
-  try {
-    const r = await fetch('/api/ban', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'ip', value: ip, bannedBy: currentTwitchUser?.login || '' })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+  const key = ip.replace(/\./g, '_');
+  const bans = await getBans();
+  if (bans.ips[key]) { status.textContent = '⚠️ IP ' + ip + ' уже в бане'; return; }
+  bans.ips[key] = { bannedAt: Date.now(), bannedBy: currentTwitchUser?.login || 'admin' };
+  if (await saveBans(bans)) {
     status.textContent = '✅ IP ' + ip + ' забанен';
     input.value = '';
     loadBannedList();
-  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
+  } else {
+    status.textContent = '❌ Ошибка записи в Firebase';
+  }
 }
 
 async function unbanIP(key) {
   const status = document.getElementById('banStatus');
   const displayIp = key.replace(/_/g, '.');
-  try {
-    const r = await fetch('/api/ban', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'ip', value: displayIp, bannedBy: currentTwitchUser?.login || '' })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+  const bans = await getBans();
+  if (!bans.ips[key]) { status.textContent = '⚠️ IP ' + displayIp + ' не в бане'; return; }
+  delete bans.ips[key];
+  if (await saveBans(bans)) {
     status.textContent = '✅ IP ' + displayIp + ' разбанен';
     loadBannedList();
-  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
+  } else {
+    status.textContent = '❌ Ошибка записи в Firebase';
+  }
 }
 
 async function assignRole() {

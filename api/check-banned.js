@@ -36,13 +36,10 @@ export default async function handler(req, res) {
     const db = getDatabase(app);
 
     const ipKey = ip.replace(/\./g, '_');
-    const [userSnap, ipSnap] = await Promise.all([
-      username ? db.ref('config/banned/users/' + username).once('value') : Promise.resolve(null),
-      db.ref('config/banned/ips/' + ipKey).once('value'),
-    ]);
-
-    const userBanned = userSnap ? !!userSnap.val() : false;
-    const ipBanned = !!ipSnap.val();
+    const snap = await db.ref('config/bans').once('value');
+    const data = snap.val() || {};
+    const userBanned = username ? !!(data.users && data.users[username]) : false;
+    const ipBanned = !!(data.ips && data.ips[ipKey]);
 
     res.status(200).json({ banned: userBanned || ipBanned, ip, username: username || null });
   } catch (e) {
