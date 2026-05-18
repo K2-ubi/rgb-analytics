@@ -251,6 +251,14 @@ async function checkTwitchAuth() {
 
     currentUserRoles = userData.roles || {};
     if (userData.role && !currentUserRoles[userData.role]) currentUserRoles[userData.role] = true;
+    if (!currentUserRoles.admin && !currentUserRoles.squad && !currentUserRoles.academy) {
+      document.getElementById('authBlock').innerHTML =
+        '<div class="logo" style="width:80px;height:80px;"></div>' +
+        '<h1 style="font-size:24px;text-align:center;">Мне кажется<br>Вас нет в списке</h1>' +
+        '<p class="muted" style="text-align:center;max-width:300px;">Ваш Twitch аккаунт <b>' + twitchUser.login + '</b> не имеет роли в RGB Network.</p>' +
+        '<button class="btn" onclick="navigate(\'/\')">Назад</button>';
+      return false;
+    }
     saveSession(twitchUser, currentUserRoles);
 
     await db.ref('twitch-users/' + twitchUser.login.toLowerCase()).update({
@@ -362,6 +370,10 @@ async function doLocalhostLogin() {
     currentTwitchUser = { login: login, display_name: userData.displayName || login, profile_image_url: userData.profileImageUrl || '', description: userData.description || '', id: userData.twitchId || login };
     currentUserRoles = userData.roles || {};
     if (userData.role && !currentUserRoles[userData.role]) currentUserRoles[userData.role] = true;
+    if (!currentUserRoles.admin && !currentUserRoles.squad && !currentUserRoles.academy) {
+      err.textContent = '❌ У пользователя ' + login + ' нет роли в RGB Network';
+      return;
+    }
     localStorage.setItem('twitchUserLogin', login);
     localStorage.setItem('twitchUserRoles', JSON.stringify(currentUserRoles));
     localStorage.setItem('twitchUserDisplayName', currentTwitchUser.display_name);
