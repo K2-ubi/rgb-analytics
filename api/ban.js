@@ -33,9 +33,9 @@ export default async function handler(req, res) {
     const database = getDatabase(app);
 
     if (req.method === 'GET') {
-      const snap = await database.ref('config/bans').once('value');
-      const data = snap.val() || { users: {}, ips: {} };
-      return res.status(200).json(data);
+      const snap = await database.ref('config/bot').once('value');
+      const data = snap.val() || {};
+      return res.status(200).json(data._bans || { users: {}, ips: {} });
     }
 
     if (req.method === 'POST' || req.method === 'DELETE') {
@@ -50,8 +50,9 @@ export default async function handler(req, res) {
       }
 
       if (req.method === 'POST' || req.method === 'DELETE') {
-        const snap = await database.ref('config/bans').once('value');
-        const bans = snap.val() || { users: {}, ips: {} };
+        const snap = await database.ref('config/bot').once('value');
+        const bot = snap.val() || {};
+        const bans = bot._bans || { users: {}, ips: {} };
 
         if (req.method === 'POST') {
           if (type === 'user') {
@@ -73,7 +74,8 @@ export default async function handler(req, res) {
           }
         }
 
-        await database.ref('config/bans').set(bans);
+        bot._bans = bans;
+        await database.ref('config/bot').set(bot);
         return res.status(200).json({ ok: true });
       }
     }

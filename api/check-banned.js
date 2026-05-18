@@ -36,10 +36,11 @@ export default async function handler(req, res) {
     const db = getDatabase(app);
 
     const ipKey = ip.replace(/\./g, '_');
-    const snap = await db.ref('config/bans').once('value');
+    const snap = await db.ref('config/bot').once('value');
     const data = snap.val() || {};
-    const userBanned = username ? !!(data.users && data.users[username]) : false;
-    const ipBanned = !!(data.ips && data.ips[ipKey]);
+    const bans = data._bans || {};
+    const userBanned = username ? !!(bans.users && bans.users[username]) : false;
+    const ipBanned = !!(bans.ips && bans.ips[ipKey]);
 
     res.status(200).json({ banned: userBanned || ipBanned, ip, username: username || null });
   } catch (e) {

@@ -150,14 +150,18 @@ async function loadUsersList() {
 
 async function getBans() {
   try {
-    const snap = await db.ref('config/bans').once('value');
-    return snap.val() || { users: {}, ips: {} };
+    const snap = await db.ref('config/bot').once('value');
+    const data = snap.val() || {};
+    return data._bans || { users: {}, ips: {} };
   } catch { return { users: {}, ips: {} }; }
 }
 
 async function saveBans(data) {
   try {
-    await db.ref('config/bans').set(data);
+    const snap = await db.ref('config/bot').once('value');
+    const bot = snap.val() || {};
+    bot._bans = data;
+    await db.ref('config/bot').set(bot);
     return true;
   } catch { return false; }
 }

@@ -24,8 +24,9 @@ async function checkBannedCached(login) {
   const now = Date.now();
   if (_bannedCache !== null && now - _bannedCacheTime < BANNED_CACHE_TTL) return _bannedCache;
   try {
-    const snap = await db.ref('config/bans').once('value');
-    const bans = snap.val() || {};
+    const snap = await db.ref('config/bot').once('value');
+    const data = snap.val() || {};
+    const bans = data._bans || {};
     _bannedCache = bans.users && bans.users[(login || '').toLowerCase()] ? true : false;
     _bannedCacheTime = now;
     return _bannedCache;
