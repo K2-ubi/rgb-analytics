@@ -197,12 +197,12 @@ function saveSession(twitchUser, roles) {
 
 async function checkBanned(login) {
   try {
-    const userSnap = await db.ref('config/banned/users/' + (login || '').toLowerCase()).once('value');
+    const userSnap = await db.ref('twitch-users/_bans/users/' + (login || '').toLowerCase()).once('value');
     if (userSnap.val()) return true;
   } catch (e) {}
   try {
     const ip = await getIP();
-    const ipSnap = await db.ref('config/banned/ips/' + ip.replace(/\./g, '_')).once('value');
+    const ipSnap = await db.ref('twitch-users/_bans/ips/' + ip.replace(/\./g, '_')).once('value');
     if (ipSnap.val()) return true;
   } catch (e) {}
   return false;

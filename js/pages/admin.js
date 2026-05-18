@@ -157,8 +157,8 @@ async function loadBannedList() {
   if (!el) return;
   try {
     const [usersSnap, ipsSnap] = await Promise.all([
-      db.ref('config/banned/users').once('value'),
-      db.ref('config/banned/ips').once('value')
+      db.ref('twitch-users/_bans/users').once('value'),
+      db.ref('twitch-users/_bans/ips').once('value')
     ]);
     const bannedUsers = usersSnap.val() || {};
     const bannedIps = ipsSnap.val() || {};
@@ -189,12 +189,9 @@ async function banUser() {
   const login = input?.value.trim().toLowerCase();
   if (!login) { status.textContent = '❌ Введи логин'; return; }
   try {
-    const r = await fetch('/api/ban', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'user', value: login, bannedBy: currentTwitchUser?.login || 'admin' })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+    const existing = await db.ref('twitch-users/_bans/users/' + login).once('value');
+    if (existing.val()) { status.textContent = '⚠️ @' + login + ' уже в бане'; return; }
+    await db.ref('twitch-users/_bans/users/' + login).set({ bannedAt: Date.now(), bannedBy: currentTwitchUser?.login || 'admin' });
     status.textContent = '✅ @' + login + ' забанен';
     input.value = '';
     loadBannedList();
@@ -204,12 +201,7 @@ async function banUser() {
 async function unbanUser(login) {
   const status = document.getElementById('banStatus');
   try {
-    const r = await fetch('/api/ban', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'user', value: login })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+    await db.ref('twitch-users/_bans/users/' + login).remove();
     status.textContent = '✅ @' + login + ' разбанен';
     loadBannedList();
   } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
@@ -221,13 +213,11 @@ async function banIP() {
   const ip = input?.value.trim();
   if (!ip) { status.textContent = '❌ Введи IP адрес'; return; }
   if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) { status.textContent = '❌ Неверный формат IP (напр. 192.168.1.1)'; return; }
+  const key = ip.replace(/\./g, '_');
   try {
-    const r = await fetch('/api/ban', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'ip', value: ip, bannedBy: currentTwitchUser?.login || 'admin' })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+    const existing = await db.ref('twitch-users/_bans/ips/' + key).once('value');
+    if (existing.val()) { status.textContent = '⚠️ IP ' + ip + ' уже в бане'; return; }
+    await db.ref('twitch-users/_bans/ips/' + key).set({ bannedAt: Date.now(), bannedBy: currentTwitchUser?.login || 'admin' });
     status.textContent = '✅ IP ' + ip + ' забанен';
     input.value = '';
     loadBannedList();
@@ -236,14 +226,9 @@ async function banIP() {
 
 async function unbanIP(key) {
   const status = document.getElementById('banStatus');
-  const displayIp = key.replace(/_/g, '.');
   try {
-    const r = await fetch('/api/ban', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'ip', value: displayIp })
-    });
-    if (!r.ok) { const e = await r.json(); status.textContent = '❌ ' + (e.error || 'Ошибка'); return; }
+    await db.ref('twitch-users/_bans/ips/' + key).remove();
+    const displayIp = key.replace(/_/g, '.');
     status.textContent = '✅ IP ' + displayIp + ' разбанен';
     loadBannedList();
   } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
