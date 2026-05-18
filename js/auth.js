@@ -121,7 +121,7 @@ async function sendErrorToTelegram(error, context) {
     const user = currentTwitchUser?.login || 'гость';
     const url = window.location.hostname + window.location.pathname;
     const text = [
-      '❌ ОШИБКА НА САЙТЕ', '',
+      '❌ОШИБКА НА САЙТЕ', '',
       msg.length > 100 ? msg.slice(0, 100) + '…' : msg,
       '📍 ' + loc, '🕐 ' + time, '👤 ' + user, '🌐 IP: ' + ip, '🔗 ' + url
     ].join('\n');
