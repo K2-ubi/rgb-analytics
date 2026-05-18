@@ -34,44 +34,52 @@ export default async function handler(req, res) {
 
     if (req.method === 'GET') {
       const [usersSnap, ipsSnap] = await Promise.all([
-        database.ref('twitch-users/_bans/users').once('value'),
-        database.ref('twitch-users/_bans/ips').once('value'),
+        database.ref('config/banned/users').once('value'),
+        database.ref('config/banned/ips').once('value'),
       ]);
       const users = usersSnap.val() || {};
       const ips = ipsSnap.val() || {};
       return res.status(200).json({ users, ips });
     }
 
-    if (req.method === 'POST') {
+    if (req.method === 'POST' || req.method === 'DELETE') {
       const { type, value, bannedBy } = req.body || {};
       if (!type || !value) return res.status(400).json({ error: 'type and value required' });
-      if (type === 'user') {
-        const login = value.toLowerCase().trim();
-        await database.ref('twitch-users/_bans/users/' + login).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
-        return res.status(200).json({ ok: true, type: 'user', value: login });
-      }
-      if (type === 'ip') {
-        const key = value.replace(/\./g, '_');
-        await database.ref('twitch-users/_bans/ips/' + key).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
-        return res.status(200).json({ ok: true, type: 'ip', value: value });
-      }
-      return res.status(400).json({ error: 'invalid type, must be "user" or "ip"' });
-    }
 
-    if (req.method === 'DELETE') {
-      const { type, value } = req.body || {};
-      if (!type || !value) return res.status(400).json({ error: 'type and value required' });
-      if (type === 'user') {
-        const login = value.toLowerCase().trim();
-        await database.ref('twitch-users/_bans/users/' + login).remove();
-        return res.status(200).json({ ok: true, type: 'user', value: login });
+      if (bannedBy) {
+        const adminSnap = await database.ref('twitch-users/' + bannedBy.toLowerCase() + '/roles/admin').once('value');
+        if (!adminSnap.val()) {
+          return res.status(403).json({ error: 'not authorized' });
+        }
       }
-      if (type === 'ip') {
-        const key = value.replace(/\./g, '_');
-        await database.ref('twitch-users/_bans/ips/' + key).remove();
-        return res.status(200).json({ ok: true, type: 'ip', value: value });
+
+      if (req.method === 'POST') {
+        if (type === 'user') {
+          const login = value.toLowerCase().trim();
+          await database.ref('config/banned/users/' + login).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
+          return res.status(200).json({ ok: true, type: 'user', value: login });
+        }
+        if (type === 'ip') {
+          const key = value.replace(/\./g, '_');
+          await database.ref('config/banned/ips/' + key).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
+          return res.status(200).json({ ok: true, type: 'ip', value: value });
+        }
+        return res.status(400).json({ error: 'invalid type, must be "user" or "ip"' });
       }
-      return res.status(400).json({ error: 'invalid type' });
+
+      if (req.method === 'DELETE') {
+        if (type === 'user') {
+          const login = value.toLowerCase().trim();
+          await database.ref('config/banned/users/' + login).remove();
+          return res.status(200).json({ ok: true, type: 'user', value: login });
+        }
+        if (type === 'ip') {
+          const key = value.replace(/\./g, '_');
+          await database.ref('config/banned/ips/' + key).remove();
+          return res.status(200).json({ ok: true, type: 'ip', value: value });
+        }
+        return res.status(400).json({ error: 'invalid type' });
+      }
     }
 
     return res.status(405).json({ error: 'method not allowed' });

@@ -24,7 +24,7 @@ async function checkBannedCached(login) {
   const now = Date.now();
   if (_bannedCache !== null && now - _bannedCacheTime < BANNED_CACHE_TTL) return _bannedCache;
   try {
-    const snap = await db.ref('twitch-users/_bans/users/' + (login || '').toLowerCase()).once('value');
+    const snap = await db.ref('config/banned/users/' + (login || '').toLowerCase()).once('value');
     _bannedCache = snap.val() ? true : false;
     _bannedCacheTime = now;
     return _bannedCache;
