@@ -3,7 +3,7 @@ import { getDatabase } from 'firebase-admin/database';
 
 const ALLOWED_PATHS = [
   'twitch-users', 'stream-chunks', 'stream-cache', 'twitch-tracker',
-  'userStats', 'stats', 'config', 'banned'
+  'userStats', 'stats', 'config'
 ];
 
 const ALLOWED_ORIGINS = [

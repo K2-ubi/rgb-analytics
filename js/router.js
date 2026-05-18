@@ -24,13 +24,10 @@ async function checkBannedCached(login) {
   const now = Date.now();
   if (_bannedCache !== null && now - _bannedCacheTime < BANNED_CACHE_TTL) return _bannedCache;
   try {
-    const r = await fetch('/api/check-banned?username=' + encodeURIComponent(login || ''));
-    if (r.ok) {
-      const d = await r.json();
-      _bannedCache = d.banned;
-      _bannedCacheTime = now;
-      return d.banned;
-    }
+    const snap = await db.ref('config/banned/users/' + (login || '').toLowerCase()).once('value');
+    _bannedCache = snap.val() ? true : false;
+    _bannedCacheTime = now;
+    return _bannedCache;
   } catch (e) {}
   return false;
 }

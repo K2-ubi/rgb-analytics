@@ -34,8 +34,8 @@ export default async function handler(req, res) {
 
     if (req.method === 'GET') {
       const [usersSnap, ipsSnap] = await Promise.all([
-        database.ref('banned/users').once('value'),
-        database.ref('banned/ips').once('value'),
+        database.ref('config/banned/users').once('value'),
+        database.ref('config/banned/ips').once('value'),
       ]);
       const users = usersSnap.val() || {};
       const ips = ipsSnap.val() || {};
@@ -47,12 +47,12 @@ export default async function handler(req, res) {
       if (!type || !value) return res.status(400).json({ error: 'type and value required' });
       if (type === 'user') {
         const login = value.toLowerCase().trim();
-        await database.ref('banned/users/' + login).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
+        await database.ref('config/banned/users/' + login).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
         return res.status(200).json({ ok: true, type: 'user', value: login });
       }
       if (type === 'ip') {
         const key = value.replace(/\./g, '_');
-        await database.ref('banned/ips/' + key).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
+        await database.ref('config/banned/ips/' + key).set({ bannedAt: Date.now(), bannedBy: bannedBy || 'admin' });
         return res.status(200).json({ ok: true, type: 'ip', value: value });
       }
       return res.status(400).json({ error: 'invalid type, must be "user" or "ip"' });
@@ -63,12 +63,12 @@ export default async function handler(req, res) {
       if (!type || !value) return res.status(400).json({ error: 'type and value required' });
       if (type === 'user') {
         const login = value.toLowerCase().trim();
-        await database.ref('banned/users/' + login).remove();
+        await database.ref('config/banned/users/' + login).remove();
         return res.status(200).json({ ok: true, type: 'user', value: login });
       }
       if (type === 'ip') {
         const key = value.replace(/\./g, '_');
-        await database.ref('banned/ips/' + key).remove();
+        await database.ref('config/banned/ips/' + key).remove();
         return res.status(200).json({ ok: true, type: 'ip', value: value });
       }
       return res.status(400).json({ error: 'invalid type' });

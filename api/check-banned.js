@@ -37,8 +37,8 @@ export default async function handler(req, res) {
 
     const ipKey = ip.replace(/\./g, '_');
     const [userSnap, ipSnap] = await Promise.all([
-      username ? db.ref('banned/users/' + username).once('value') : Promise.resolve(null),
-      db.ref('banned/ips/' + ipKey).once('value'),
+      username ? db.ref('config/banned/users/' + username).once('value') : Promise.resolve(null),
+      db.ref('config/banned/ips/' + ipKey).once('value'),
     ]);
 
     const userBanned = userSnap ? !!userSnap.val() : false;
