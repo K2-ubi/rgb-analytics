@@ -245,7 +245,7 @@ async function checkTwitchAuth() {
         '<div class="logo" style="width:80px;height:80px;"></div>' +
         '<h1 style="font-size:24px;text-align:center;">Мне кажется<br>Вам сюда нельзя</h1>' +
         '<p class="muted" style="text-align:center;max-width:300px;">Ваш Twitch аккаунт <b>' + twitchUser.login + '</b> не найден в базе RGB Network.</p>' +
-        '<button class="btn" onclick="navigate(\'/\')">Назад</button>';
+        '<button class="btn" onclick="logout();navigate(\'/\')">🚪 Выйти</button>';
       return false;
     }
 
@@ -256,7 +256,7 @@ async function checkTwitchAuth() {
         '<div class="logo" style="width:80px;height:80px;"></div>' +
         '<h1 style="font-size:24px;text-align:center;">Мне кажется<br>Вас нет в списке</h1>' +
         '<p class="muted" style="text-align:center;max-width:300px;">Ваш Twitch аккаунт <b>' + twitchUser.login + '</b> не имеет роли в RGB Network.</p>' +
-        '<button class="btn" onclick="navigate(\'/\')">Назад</button>';
+        '<button class="btn" onclick="logout();navigate(\'/\')">🚪 Выйти</button>';
       return false;
     }
     saveSession(twitchUser, currentUserRoles);
