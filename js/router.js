@@ -151,11 +151,6 @@ async function handleRoute() {
     return;
   }
 
-  if (route.auth) {
-    if (appEl) appEl.classList.add('authorized');
-    if (authBlock) authBlock.style.display = 'none';
-  }
-
   const page = PATH_TO_PAGE[path] || null;
   if (page && typeof activeNav === 'function') {
     activeNav(page);
