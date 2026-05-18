@@ -148,15 +148,34 @@ async function loadUsersList() {
   } catch (e) { el.innerHTML = '<p class="muted">Ошибка загрузки</p>'; }
 }
 
+function proxyHeader() {
+  return { 'X-Admin-Login': currentTwitchUser?.login || '' };
+}
+
 async function getBans() {
   try {
-    const snap = await db.ref('config/bot').once('value');
-    const data = snap.val() || {};
+    const res = await fetch('/api/firebase-proxy?path=config/bot', { headers: proxyHeader() });
+    if (!res.ok) throw new Error('proxy error');
+    const data = await res.json();
     return data._bans || { users: {}, ips: {} };
-  } catch { return { users: {}, ips: {} }; }
+  } catch {
+    try {
+      const snap = await db.ref('config/bot').once('value');
+      const data = snap.val() || {};
+      return data._bans || { users: {}, ips: {} };
+    } catch { return { users: {}, ips: {} }; }
+  }
 }
 
 async function saveBans(data) {
+  try {
+    const res = await fetch('/api/firebase-proxy?path=config/bot', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...proxyHeader() },
+      body: JSON.stringify({ _bans: data })
+    });
+    if (res.ok) return true;
+  } catch {}
   try {
     await db.ref('config/bot').update({ _bans: data });
     return true;

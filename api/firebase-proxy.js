@@ -28,14 +28,15 @@ export default async function handler(req, res) {
   const isAllowedOrigin = ALLOWED_ORIGINS.some(o => origin.startsWith(o));
   res.setHeader('Access-Control-Allow-Origin', isAllowedOrigin ? origin : 'https://rgb-analytics.vercel.app');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Firebase-UID');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Firebase-UID, X-Admin-Login');
   res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const uid = req.headers['x-firebase-uid'];
-  if (!uid) {
-    return res.status(401).json({ error: 'X-Firebase-UID header required' });
+  const adminLogin = req.headers['x-admin-login'];
+  if (!uid && !adminLogin) {
+    return res.status(401).json({ error: 'X-Firebase-UID or X-Admin-Login header required' });
   }
 
   try {
@@ -49,9 +50,16 @@ export default async function handler(req, res) {
     const allowed = ALLOWED_PATHS.some(p => path.startsWith(p));
     if (!allowed) return res.status(403).json({ error: 'path not allowed' });
 
-    const adminSnap = await db.ref('admins/' + uid).once('value');
-    if (!adminSnap.val()) {
-      return res.status(403).json({ error: 'not authorized' });
+    if (uid) {
+      const adminSnap = await db.ref('admins/' + uid).once('value');
+      if (!adminSnap.val()) {
+        return res.status(403).json({ error: 'not authorized' });
+      }
+    } else {
+      const roleSnap = await db.ref('twitch-users/' + adminLogin.toLowerCase() + '/roles/admin').once('value');
+      if (!roleSnap.val()) {
+        return res.status(403).json({ error: 'not authorized' });
+      }
     }
 
     if (method === 'GET') {
