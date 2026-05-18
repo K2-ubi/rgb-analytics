@@ -158,10 +158,7 @@ async function getBans() {
 
 async function saveBans(data) {
   try {
-    const snap = await db.ref('config/bot').once('value');
-    const bot = snap.val() || {};
-    bot._bans = data;
-    await db.ref('config/bot').set(bot);
+    await db.ref('config/bot').update({ _bans: data });
     return true;
   } catch { return false; }
 }
