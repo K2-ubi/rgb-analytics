@@ -10,6 +10,11 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 
+const RECAPTCHA_SITE_KEY = '6LeCGPIsAAAAALrxMigz3znA2CT5wbKm8rBPkUWv';
+if (typeof firebase.appCheck !== 'undefined' && RECAPTCHA_SITE_KEY) {
+  firebase.appCheck().activate(RECAPTCHA_SITE_KEY, true);
+}
+
 const db = firebase.database();
 const authReady = firebase.auth().signInAnonymously()
   .then(() => console.log('Firebase anonymous auth OK'))
@@ -20,12 +25,10 @@ const CACHE_TTL = 20000;
 const BOT_CACHE_TTL = 60000;
 const BOT_INFO_TTL = 120000;
 
+window.__RECAPTCHA_SITE_KEY = RECAPTCHA_SITE_KEY;
 fetch('/api/firebase-config').then(r => r.json()).then(cfg => {
-  if (cfg.recaptchaSiteKey) {
+  if (cfg.recaptchaSiteKey && cfg.recaptchaSiteKey !== RECAPTCHA_SITE_KEY) {
     window.__RECAPTCHA_SITE_KEY = cfg.recaptchaSiteKey;
-    if (typeof firebase.appCheck !== 'undefined') {
-      firebase.appCheck().activate(cfg.recaptchaSiteKey, true);
-    }
   }
 }).catch(() => {});
 
