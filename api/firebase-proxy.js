@@ -1,47 +1,26 @@
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
+import { setCorsHeaders, verifyAppCheck, getAdminApp } from './_shared.js';
 
 const ALLOWED_PATHS = [
   'twitch-users', 'stream-chunks', 'stream-cache', 'twitch-tracker',
   'userStats', 'stats', 'config'
 ];
 
-const ALLOWED_ORIGINS = [
-  'https://rgb-analytics.vercel.app',
-  'http://localhost:3000',
-  'http://localhost:5173',
-];
-
-function getAdminApp() {
-  if (getApps().length) return getApps()[0];
-  const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!sa) throw new Error('FIREBASE_SERVICE_ACCOUNT not set');
-  const serviceAccount = JSON.parse(Buffer.from(sa, 'base64').toString('utf-8'));
-  return initializeApp({
-    credential: cert(serviceAccount),
-    databaseURL: serviceAccount.databaseURL || `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`,
-  });
-}
-
 export default async function handler(req, res) {
-  const origin = req.headers.origin || '';
-  const isAllowedOrigin = ALLOWED_ORIGINS.some(o => origin.startsWith(o));
-  res.setHeader('Access-Control-Allow-Origin', isAllowedOrigin ? origin : 'https://rgb-analytics.vercel.app');
+  setCorsHeaders(req, res);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Firebase-UID, X-Admin-Login');
-  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Firebase-UID, X-Admin-Login, X-Firebase-AppCheck');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  if (!(await verifyAppCheck(req, res))) return;
+
   const uid = req.headers['x-firebase-uid'];
   const adminLogin = req.headers['x-admin-login'];
-  if (!uid && !adminLogin) {
-    return res.status(401).json({ error: 'X-Firebase-UID or X-Admin-Login header required' });
-  }
+  if (!uid && !adminLogin) return res.status(401).json({ error: 'X-Firebase-UID or X-Admin-Login header required' });
 
   try {
-    const app = getAdminApp();
-    const db = getDatabase(app);
+    const db = getDatabase(getAdminApp());
     const path = req.query.path || '';
     const method = req.method;
 
@@ -52,14 +31,10 @@ export default async function handler(req, res) {
 
     if (uid) {
       const adminSnap = await db.ref('admins/' + uid).once('value');
-      if (!adminSnap.val()) {
-        return res.status(403).json({ error: 'not authorized' });
-      }
+      if (!adminSnap.val()) return res.status(403).json({ error: 'not authorized' });
     } else {
       const roleSnap = await db.ref('twitch-users/' + adminLogin.toLowerCase() + '/roles/admin').once('value');
-      if (!roleSnap.val()) {
-        return res.status(403).json({ error: 'not authorized' });
-      }
+      if (!roleSnap.val()) return res.status(403).json({ error: 'not authorized' });
     }
 
     if (method === 'GET') {

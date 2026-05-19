@@ -163,6 +163,15 @@ async function firebasePatch(env, path, data) {
   });
 }
 
+async function firebasePut(env, path, data) {
+  if (!env.FIREBASE_DB_SECRET) return;
+  await fetch(env.FIREBASE_DB_URL + '/' + path + '.json?auth=' + env.FIREBASE_DB_SECRET, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
 async function monitorStreams(env) {
   const now = Date.now();
   const d = new Date();
@@ -187,6 +196,7 @@ async function monitorStreams(env) {
 
   const token = await getToken(env);
   const results = [];
+  const cacheUpdates = {};
 
   for (const member of members) {
     try {
@@ -207,20 +217,68 @@ async function monitorStreams(env) {
       const sData = await sRes.json();
       const stream = sData.data?.[0];
 
+      const wasLive = await env.KV.get('live_' + member.login);
+      const peakKey = 'peak_' + member.login;
+      const startedKey = 'started_' + member.login;
+
       if (stream) {
+        const viewers = stream.viewer_count;
+        const durationMins = Math.round((now - new Date(stream.started_at).getTime()) / 60000);
+        const startedAt = stream.started_at;
+
+        let peakViewers = parseInt(await env.KV.get(peakKey) || '0');
+        if (viewers > peakViewers) {
+          peakViewers = viewers;
+          await env.KV.put(peakKey, String(peakViewers));
+        }
+
+        if (!wasLive) {
+          await env.KV.put('live_' + member.login, '1');
+          await env.KV.put(startedKey, startedAt);
+        }
+
         const chunk = {
-          viewers: stream.viewer_count,
+          viewers,
+          peakViewers,
+          durationMins,
           game: stream.game_name || 'unknown',
           title: stream.title || '',
           language: stream.language || '',
           updatedAt: now,
+          startedAt,
+          online: true,
         };
 
         const chunkPath = 'stream-chunks/' + member.login + '/' + dateStr + '/' + now;
         await firebasePatch(env, chunkPath, chunk);
 
-        results.push({ login: member.login, online: true, viewers: stream.viewer_count, game: stream.game_name });
+        cacheUpdates['stream-cache/' + member.login] = {
+          game: stream.game_name || 'unknown',
+          title: stream.title || '',
+          startedAt,
+          viewers,
+          peakViewers,
+          live: true,
+          updatedAt: now,
+        };
+
+        results.push({ login: member.login, online: true, viewers, peakViewers, game: stream.game_name, durationMins });
       } else {
+        if (wasLive) {
+          const startedAt = await env.KV.get(startedKey);
+          if (startedAt) {
+            const finalDuration = Math.round((now - new Date(startedAt).getTime()) / 60000);
+            await firebasePatch(env, 'stream-chunks/' + member.login + '/' + dateStr + '/' + now, {
+              viewers: 0, peakViewers: parseInt(await env.KV.get(peakKey) || '0'),
+              durationMins: finalDuration, online: false, endedAt: now, updatedAt: now,
+            });
+          }
+          await env.KV.delete('live_' + member.login);
+          await env.KV.delete(peakKey);
+          await env.KV.delete(startedKey);
+        }
+
+        cacheUpdates['stream-cache/' + member.login] = { live: false, updatedAt: now };
         results.push({ login: member.login, online: false });
       }
     } catch (e) {
@@ -229,6 +287,9 @@ async function monitorStreams(env) {
     }
   }
 
+  if (Object.keys(cacheUpdates).length) {
+    await firebasePatch(env, '', cacheUpdates);
+  }
   await firebasePatch(env, 'stream-cache/_monitor', { lastRun: now, results });
 
   console.log('Monitor results:', JSON.stringify(results));

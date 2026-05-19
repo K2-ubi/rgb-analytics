@@ -102,9 +102,12 @@ async function getIP() {
 }
 
 async function callTgApi(action, payload) {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = await getAppCheckToken();
+  if (token) headers['X-Firebase-AppCheck'] = token;
   const res = await fetch(TG_PROXY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ action, ...payload })
   });
   if (!res.ok) throw new Error('Telegram API error: ' + res.status);

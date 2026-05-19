@@ -9,6 +9,7 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
+
 const db = firebase.database();
 const authReady = firebase.auth().signInAnonymously()
   .then(() => console.log('Firebase anonymous auth OK'))
@@ -18,3 +19,20 @@ const TWITCH_CLIENT_ID = 'a26lg52682u7ja24bam0p8lnahs7lg';
 const CACHE_TTL = 20000;
 const BOT_CACHE_TTL = 60000;
 const BOT_INFO_TTL = 120000;
+
+fetch('/api/firebase-config').then(r => r.json()).then(cfg => {
+  if (cfg.recaptchaSiteKey) {
+    window.__RECAPTCHA_SITE_KEY = cfg.recaptchaSiteKey;
+    if (typeof firebase.appCheck !== 'undefined') {
+      firebase.appCheck().activate(cfg.recaptchaSiteKey, true);
+    }
+  }
+}).catch(() => {});
+
+async function getAppCheckToken() {
+  try {
+    if (typeof firebase.appCheck === 'undefined' || !window.__RECAPTCHA_SITE_KEY) return '';
+    const result = await firebase.appCheck().getToken(false);
+    return result.token;
+  } catch { return ''; }
+}

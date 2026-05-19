@@ -1,36 +1,17 @@
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
-
-const ALLOWED_ORIGINS = [
-  'https://rgb-analytics.vercel.app',
-  'http://localhost:3000',
-  'http://localhost:5173',
-];
-
-function getAdminApp() {
-  if (getApps().length) return getApps()[0];
-  const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!sa) throw new Error('FIREBASE_SERVICE_ACCOUNT not set');
-  const serviceAccount = JSON.parse(Buffer.from(sa, 'base64').toString('utf-8'));
-  return initializeApp({
-    credential: cert(serviceAccount),
-    databaseURL: serviceAccount.databaseURL || `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`,
-  });
-}
+import { setCorsHeaders, verifyAppCheck, getAdminApp } from './_shared.js';
 
 export default async function handler(req, res) {
-  const origin = req.headers.origin || '';
-  const isAllowedOrigin = ALLOWED_ORIGINS.some(o => origin.startsWith(o));
-  res.setHeader('Access-Control-Allow-Origin', isAllowedOrigin ? origin : 'https://rgb-analytics.vercel.app');
+  setCorsHeaders(req, res);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Firebase-AppCheck');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  if (!(await verifyAppCheck(req, res))) return;
+
   try {
-    const app = getAdminApp();
-    const database = getDatabase(app);
+    const database = getDatabase(getAdminApp());
 
     if (req.method === 'GET') {
       const snap = await database.ref('squad/_bans').once('value');
@@ -43,9 +24,7 @@ export default async function handler(req, res) {
 
       if (bannedBy) {
         const adminSnap = await database.ref('twitch-users/' + bannedBy.toLowerCase() + '/roles/admin').once('value');
-        if (!adminSnap.val()) {
-          return res.status(403).json({ error: 'not authorized' });
-        }
+        if (!adminSnap.val()) return res.status(403).json({ error: 'not authorized' });
       }
 
       const snap = await database.ref('squad/_bans').once('value');
@@ -53,22 +32,14 @@ export default async function handler(req, res) {
 
       if (req.method === 'POST') {
         if (type === 'user') {
-          const login = value.toLowerCase().trim();
-          bans.users[login] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
+          bans.users[value.toLowerCase().trim()] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
         } else if (type === 'ip') {
-          const key = value.replace(/\./g, '_');
-          bans.ips[key] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
-        } else {
-          return res.status(400).json({ error: 'invalid type' });
-        }
+          bans.ips[value.replace(/\./g, '_')] = { bannedAt: Date.now(), bannedBy: bannedBy || 'admin' };
+        } else return res.status(400).json({ error: 'invalid type' });
       } else {
-        if (type === 'user') {
-          delete bans.users[value.toLowerCase().trim()];
-        } else if (type === 'ip') {
-          delete bans.ips[value.replace(/\./g, '_')];
-        } else {
-          return res.status(400).json({ error: 'invalid type' });
-        }
+        if (type === 'user') delete bans.users[value.toLowerCase().trim()];
+        else if (type === 'ip') delete bans.ips[value.replace(/\./g, '_')];
+        else return res.status(400).json({ error: 'invalid type' });
       }
 
       await database.ref('squad/_bans').set(bans);
