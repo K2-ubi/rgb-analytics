@@ -115,25 +115,27 @@ function auth(env, _corsHeaders, bot = 1) {
   const sfx = botSuffix(bot);
   const p = new URLSearchParams({
     client_id: env.BOT_CLIENT_ID,
-    redirect_uri: env.REDIRECT_URI + '?bot=' + bot,
+    redirect_uri: env.REDIRECT_URI,
     response_type: 'code',
     scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions chat:read',
+    state: 'bot=' + bot,
     force_verify: 'true',
   });
   return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
 }
 
-async function callback(url, env, _corsHeaders, bot = 1) {
-  const sfx = botSuffix(bot);
+async function callback(url, env, _corsHeaders) {
   const code = url.searchParams.get('code');
   if (!code) return html('Ошибка: ' + (url.searchParams.get('error') || 'unknown'));
+  const bot = parseInt(url.searchParams.get('state')?.match(/bot=(\d)/)?.[1] || '1');
+  const sfx = botSuffix(bot);
   const r = await fetch(TWITCH_TOKEN, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       client_id: env.BOT_CLIENT_ID, client_secret: env.BOT_CLIENT_SECRET,
       code, grant_type: 'authorization_code',
-      redirect_uri: env.REDIRECT_URI + '?bot=' + bot,
+      redirect_uri: env.REDIRECT_URI,
     }),
   });
   const d = await r.json();
