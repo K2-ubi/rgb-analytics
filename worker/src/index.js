@@ -86,7 +86,7 @@ async function getToken(env, bot = 1) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'refresh_token', refresh_token: rt,
-      client_id: env.TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
+      client_id: env.BOT_CLIENT_ID, client_secret: env.BOT_CLIENT_SECRET,
     }),
   });
   const d = await r.json();
@@ -101,7 +101,7 @@ async function getToken(env, bot = 1) {
 async function saveInfo(env, token, sfx = '') {
   if (await env.KV.get('bot_login' + sfx)) return;
   const r = await fetch(TWITCH_API + '/users', {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.BOT_CLIENT_ID },
   });
   const d = await r.json();
   if (d.data?.[0]) {
@@ -114,7 +114,7 @@ async function saveInfo(env, token, sfx = '') {
 function auth(env, _corsHeaders, bot = 1) {
   const sfx = botSuffix(bot);
   const p = new URLSearchParams({
-    client_id: env.TWITCH_CLIENT_ID,
+    client_id: env.BOT_CLIENT_ID,
     redirect_uri: env.REDIRECT_URI + '?bot=' + bot,
     response_type: 'code',
     scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions chat:read',
@@ -131,7 +131,7 @@ async function callback(url, env, _corsHeaders, bot = 1) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id: env.TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
+      client_id: env.BOT_CLIENT_ID, client_secret: env.BOT_CLIENT_SECRET,
       code, grant_type: 'authorization_code',
       redirect_uri: env.REDIRECT_URI + '?bot=' + bot,
     }),
@@ -160,7 +160,7 @@ async function proxyAsBot(url, env, path, corsHeaders) {
   const botId = await env.KV.get('bot_id' + sfx);
   if (botId && path === '/chat/chatters') q.set('moderator_id', botId);
   const r = await fetch(TWITCH_API + path + '?' + q, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.BOT_CLIENT_ID },
   });
   const data = await r.json();
   return new Response(JSON.stringify(data), {
@@ -263,7 +263,7 @@ async function monitorStreams(env) {
       let userId = member.id;
       if (!userId) {
         const uRes = await fetch(TWITCH_API + '/users?login=' + member.login, {
-          headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
+          headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.BOT_CLIENT_ID },
         });
         const uData = await uRes.json();
         if (!uData.data?.[0]) continue;
@@ -272,7 +272,7 @@ async function monitorStreams(env) {
       }
 
       const sRes = await fetch(TWITCH_API + '/streams?user_id=' + userId, {
-        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
+        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.BOT_CLIENT_ID },
       });
       const sData = await sRes.json();
       const stream = sData.data?.[0];
@@ -330,7 +330,7 @@ async function monitorStreams(env) {
             const bot2Id = await env.KV.get('bot_id_2');
             if (bot2Id && bot2Id !== userId) {
               await fetch(TWITCH_API + '/chat/chatters?broadcaster_id=' + userId + '&moderator_id=' + bot2Id + '&first=1', {
-                headers: { 'Authorization': 'Bearer ' + bot2Token, 'Client-Id': env.TWITCH_CLIENT_ID },
+                headers: { 'Authorization': 'Bearer ' + bot2Token, 'Client-Id': env.BOT_CLIENT_ID },
               });
             }
           }

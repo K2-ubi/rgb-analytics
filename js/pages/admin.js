@@ -382,34 +382,6 @@ async function deleteBotConfig() {
   } catch (e) { status.innerHTML = '❌ Ошибка: ' + e.message; }
 }
 
-async function saveBotTokenDirect() {
-  const status = document.getElementById('botConfigStatus');
-  const token = document.getElementById('botTokenInput').value.trim();
-  const clientId = document.getElementById('botClientIdInput').value.trim();
-  if (!token) { status.innerHTML = '❌ Введи токен'; return; }
-  try {
-    await db.ref('config/bot').update({ token, clientId: clientId || TWITCH_CLIENT_ID, workerUrl: '' });
-    _botConfig = null;
-    status.innerHTML = '✅ Токен сохранен: ' + token.slice(0, 8) + '…';
-  } catch (e) { status.innerHTML = '❌ Ошибка: ' + e.message; }
-}
-
-async function deleteBotConfig() {
-  const status = document.getElementById('botConfigStatus');
-  if (!confirm('Сбросить настройки бота? Все API запросы пойдут через твой токен.')) return;
-  try {
-    await db.ref('config/bot').remove();
-    _botConfig = null;
-    const wu = document.getElementById('botWorkerUrlInput');
-    if (wu) wu.value = '';
-    const ti = document.getElementById('botTokenInput');
-    if (ti) ti.value = '';
-    const ci = document.getElementById('botClientIdInput');
-    if (ci) ci.value = '';
-    status.innerHTML = '🗑 Настройки сброшены';
-  } catch (e) { status.innerHTML = '❌ Ошибка: ' + e.message; }
-}
-
 function authBot() {
   const input = document.getElementById('botWorkerUrlInput').value.trim();
   if (!input) { document.getElementById('botConfigStatus').innerHTML = '❌ Сначала введи URL воркера'; return; }
