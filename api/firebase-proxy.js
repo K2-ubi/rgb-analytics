@@ -43,7 +43,11 @@ export default async function handler(req, res) {
     }
 
     if (method === 'PATCH' || method === 'POST') {
-      await db.ref(path).update(req.body);
+      if (req.body && typeof req.body === 'object' && '.value' in req.body) {
+        await db.ref(path).set(req.body['.value']);
+      } else {
+        await db.ref(path).update(req.body);
+      }
       return res.status(200).json({ ok: true });
     }
 

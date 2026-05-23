@@ -204,10 +204,8 @@ async function getBans() {
 }
 
 async function saveBans(data) {
-  try {
-    await db.ref('squad/_bans').set(data);
-    return true;
-  } catch { return false; }
+  try { await adminProxy('PATCH', 'squad/_bans', data); return true; }
+  catch { return false; }
 }
 
 async function loadBannedList() {
@@ -306,7 +304,7 @@ async function assignRole() {
   if (document.getElementById('chkSquad').checked) roles.squad = true;
   if (document.getElementById('chkAcademy').checked) roles.academy = true;
   try {
-    await db.ref('twitch-users/' + username + '/roles').set(roles);
+    await adminProxy('PATCH', 'twitch-users/' + username + '/roles', roles);
     const label = Object.keys(roles).length ? Object.keys(roles).join(', ') : 'user';
     result.innerHTML = '<p style="color:#4ade80">Роли "' + label + '" назначены для ' + username + '</p>';
     document.getElementById('adminUsername').value = '';
@@ -330,14 +328,57 @@ async function loadBotConfig() {
   } catch (e) { status.innerHTML = '❌ Ошибка загрузки'; }
 }
 
+async function adminProxy(method, path, body) {
+  const login = currentTwitchUser?.login;
+  if (!login) throw new Error('Не определён текущий пользователь');
+  const token = await getAppCheckToken();
+  const headers = { 'Content-Type': 'application/json', 'X-Admin-Login': login };
+  if (token) headers['X-Firebase-AppCheck'] = token;
+  const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path), {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'HTTP ' + res.status); }
+  return res.json();
+}
+
 async function saveBotConfig() {
   const status = document.getElementById('botConfigStatus');
   const workerUrl = document.getElementById('botWorkerUrlInput').value.trim();
   if (!workerUrl) { status.innerHTML = '❌ Введи URL воркера'; return; }
   try {
-    await db.ref('config/bot').update({ workerUrl });
+    await adminProxy('PATCH', 'config/bot', { workerUrl });
     _botConfig = null;
     status.innerHTML = '✅ URL воркера сохранен: ' + workerUrl;
+  } catch (e) { status.innerHTML = '❌ Ошибка: ' + e.message; }
+}
+
+async function saveBotTokenDirect() {
+  const status = document.getElementById('botConfigStatus');
+  const token = document.getElementById('botTokenInput').value.trim();
+  const clientId = document.getElementById('botClientIdInput').value.trim();
+  if (!token) { status.innerHTML = '❌ Введи токен'; return; }
+  try {
+    await adminProxy('PATCH', 'config/bot', { token, clientId: clientId || TWITCH_CLIENT_ID, workerUrl: '' });
+    _botConfig = null;
+    status.innerHTML = '✅ Токен сохранен: ' + token.slice(0, 8) + '…';
+  } catch (e) { status.innerHTML = '❌ Ошибка: ' + e.message; }
+}
+
+async function deleteBotConfig() {
+  const status = document.getElementById('botConfigStatus');
+  if (!confirm('Сбросить настройки бота? Все API запросы пойдут через твой токен.')) return;
+  try {
+    await adminProxy('PATCH', 'config/bot', { workerUrl: '', token: '', clientId: '' });
+    _botConfig = null;
+    const wu = document.getElementById('botWorkerUrlInput');
+    if (wu) wu.value = '';
+    const ti = document.getElementById('botTokenInput');
+    if (ti) ti.value = '';
+    const ci = document.getElementById('botClientIdInput');
+    if (ci) ci.value = '';
+    status.innerHTML = '🗑 Настройки сброшены';
   } catch (e) { status.innerHTML = '❌ Ошибка: ' + e.message; }
 }
 
@@ -412,7 +453,7 @@ async function saveLocalhostPass() {
   const status = document.getElementById('localhostPassStatus');
   const pass = input?.value.trim();
   if (!pass) { status.innerHTML = '❌ Введи пароль'; return; }
-  try { await db.ref('config/localhost-password').set(pass); status.innerHTML = '✅ Пароль сохранен'; }
+  try { await adminProxy('PATCH', 'config/localhost-password', { '.value': pass }); status.innerHTML = '✅ Пароль сохранен'; }
   catch (e) { status.innerHTML = '❌ Ошибка: ' + e.message; }
 }
 
@@ -483,8 +524,7 @@ async function saveTgConfig() {
   const proxyVal = proxyInput.value.trim() || '/api/telegram';
   if (!val) { status.textContent = '❌ Введи Chat ID'; return; }
   try {
-    await db.ref('config/tg-chat-id').set(val);
-    await db.ref('config/tg-proxy-url').set(proxyVal);
+    await adminProxy('PATCH', 'config', { 'tg-chat-id': val, 'tg-proxy-url': proxyVal });
     _tgChatIds = val.split(/[\s,;]+/).filter(Boolean);
     TG_PROXY_URL = proxyVal;
     status.textContent = '✅ Сохранено (' + _tgChatIds.length + ' ID): ' + _tgChatIds.join(', ');
@@ -604,7 +644,7 @@ async function saveCmds() {
     if (key) cmds[key] = val || '';
   }
   try {
-    await db.ref('config/commands/' + login).set(cmds);
+    await adminProxy('PATCH', 'config/commands/' + login, cmds);
     _cmdsData = cmds;
     status.textContent = '✅ Сохранено ' + Object.keys(cmds).length + ' команд для @' + login;
   } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
