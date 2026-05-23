@@ -141,9 +141,13 @@ async function callback(url, env, _corsHeaders, bot = 1) {
   await env.KV.put('access_token' + sfx, d.access_token);
   await env.KV.put('refresh_token' + sfx, d.refresh_token);
   await env.KV.put('expires_at' + sfx, String(Date.now() + (d.expires_in || 14400) * 1000));
+  await env.KV.delete('bot_login' + sfx);
+  await env.KV.delete('bot_display' + sfx);
+  await env.KV.delete('bot_id' + sfx);
   await saveInfo(env, d.access_token, sfx);
   const login = await env.KV.get('bot_display' + sfx) || await env.KV.get('bot_login' + sfx) || 'бот ' + bot;
   const botLabel = bot === 2 ? ' (второй аккаунт)' : '';
+  await logToFirebase(env, 'worker', 'info', 'Bot #' + bot + ' authorized as ' + login);
   return html(login + ' ✅ авторизован' + botLabel + '!<br><span style="font-size:14px">Закрой окно → в админке нажми Статус</span>', true);
 }
 
