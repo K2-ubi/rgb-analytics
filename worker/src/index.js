@@ -39,6 +39,8 @@ export default {
         case '/api/twitch/videos': return proxyAsBot(url, env, '/videos', corsHeaders);
         case '/api/monitor-streams': return requireSecret(env, request) ? monitorStreams(env) : json({ error: 'forbidden' }, 403, corsHeaders);
         case '/api/token': return requireSecret(env, request) ? getBotTokenForLurker(url, env, corsHeaders) : json({ error: 'forbidden' }, 403, corsHeaders);
+        case '/api/reset': return resetBot(url, env, corsHeaders);
+        case '/api/logs': return requireSecret(env, request) ? getLogs(env, corsHeaders) : json({ error: 'forbidden' }, 403, corsHeaders);
         case '/api/tracker-summary': return trackerSummary(url, env, corsHeaders);
         default: return json({ error: 'not found' }, 404, corsHeaders);
       }
@@ -47,10 +49,22 @@ export default {
     }
   },
   async scheduled(_event, env) {
-    try { await getToken(env); } catch (e) {}
-    try { await getToken(env, 2); } catch (e) {}
-    await monitorStreams(env);
-    await fetchTrackerData(env);
+    try {
+      await getToken(env);
+      await logToFirebase(env, 'worker', 'info', 'Bot #1 token refreshed');
+    } catch (e) {
+      await logToFirebase(env, 'worker', 'error', 'Bot #1 token refresh failed: ' + e.message);
+    }
+    try {
+      await getToken(env, 2);
+      await logToFirebase(env, 'worker', 'info', 'Bot #2 token refreshed');
+    } catch (e) {
+      await logToFirebase(env, 'worker', 'error', 'Bot #2 token refresh failed: ' + e.message);
+    }
+    let results = [];
+    try { results = (await monitorStreams(env)) || []; } catch (e) { await logToFirebase(env, 'worker', 'error', 'monitorStreams failed: ' + e.message); }
+    await logToFirebase(env, 'worker', 'info', 'Monitor: ' + results.length + ' members checked', results);
+    try { await fetchTrackerData(env); } catch (e) { await logToFirebase(env, 'worker', 'error', 'fetchTrackerData failed: ' + e.message); }
   },
 };
 
@@ -188,6 +202,32 @@ async function firebasePut(env, path, data) {
   });
 }
 
+async function logToFirebase(env, source, level, message, data) {
+  if (!env.FIREBASE_DB_SECRET) return;
+  const entry = { ts: Date.now(), source, level, message, data: data || null };
+  try {
+    const snap = await firebaseGet(env, 'config/logs');
+    let logs = Array.isArray(snap) ? snap : [];
+    logs.push(entry);
+    if (logs.length > 200) logs = logs.slice(-200);
+    await firebasePut(env, 'config/logs', logs);
+  } catch (e) { console.error('logToFirebase error:', e); }
+}
+
+async function resetBot(url, env, corsHeaders) {
+  const bot = parseInt(url.searchParams.get('bot') || '1');
+  const sfx = botSuffix(bot);
+  const keys = ['access_token', 'refresh_token', 'expires_at', 'bot_login', 'bot_display', 'bot_id'];
+  for (const k of keys) await env.KV.delete(k + sfx);
+  await logToFirebase(env, 'worker', 'warn', 'Bot #' + bot + ' KV reset');
+  return json({ ok: true, bot }, 200, corsHeaders);
+}
+
+async function getLogs(env, corsHeaders) {
+  const logs = await firebaseGet(env, 'config/logs');
+  return json(Array.isArray(logs) ? logs.reverse() : [], 200, corsHeaders);
+}
+
 async function monitorStreams(env) {
   const now = Date.now();
   const d = new Date();
@@ -316,13 +356,12 @@ async function monitorStreams(env) {
   }
 
   if (Object.keys(cacheUpdates).length) {
-    await firebasePatch(env, '', cacheUpdates);
-  }
-  await firebasePatch(env, 'stream-cache/_monitor', { lastRun: now, results });
-
-  console.log('Monitor results:', JSON.stringify(results));
-  return results;
-}
+      await firebasePatch(env, '', cacheUpdates);
+    } catch (e) {
+      await logToFirebase(env, 'worker', 'error', 'monitorStreams member failed: ' + member.login + ' — ' + e.message);
+      console.error('monitor error for ' + member.login + ':', e);
+      results.push({ login: member.login, error: e.message });
+    }
 
 async function getBotTokenForLurker(url, env, corsHeaders) {
   const bot = parseInt(url.searchParams.get('bot') || '1');
@@ -332,8 +371,10 @@ async function getBotTokenForLurker(url, env, corsHeaders) {
     const login = await env.KV.get('bot_login' + sfx);
     const display = await env.KV.get('bot_display' + sfx);
     const id = await env.KV.get('bot_id' + sfx);
+    await logToFirebase(env, 'worker', 'info', 'Lurker token requested bot=' + bot + ' login=' + (login || '?'));
     return json({ token, login, display, id, bot }, 200, corsHeaders);
   } catch (e) {
+    await logToFirebase(env, 'worker', 'error', 'Lurker token failed bot=' + bot + ': ' + e.message);
     return json({ error: e.message, bot }, 400, corsHeaders);
   }
 }

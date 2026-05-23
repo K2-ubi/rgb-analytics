@@ -50,6 +50,7 @@ function renderAdminPanel() {
           <div style="display:flex;gap:10px">
             <button class="btn primary" onclick="authBot2()">🔑 Авторизовать бота #2</button>
             <button class="btn" onclick="checkBotStatus2()">🧪 Статус #2</button>
+            <button class="btn" onclick="resetBot2()" style="border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.08);color:#fca5a5">🗑 Сбросить #2</button>
           </div>
           <p class="muted" style="font-size:12px;line-height:1.5">Авторизуй второй Twitch аккаунт. Воркер будет использовать его для продления серии просмотров у стримеров сквада в эфире. Авторизация через тот же воркер.</p>
           <div id="bot2ConfigStatus" class="muted" style="font-size:13px"></div>
@@ -114,6 +115,27 @@ function renderAdminPanel() {
           <input type="file" id="sgCsvInput" accept=".csv" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
           <button class="btn primary" onclick="importSullyGnomeCSV()">📥 Импортировать CSV</button>
           <div id="sgImportResult" class="muted" style="font-size:13px"></div>
+        </div>
+      </div>
+      <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+        <p class="muted" style="margin-bottom:12px">📋 Логи (worker/lurker/site)</p>
+        <div style="display:grid;gap:10px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <select id="logSourceFilter" style="padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-size:12px">
+              <option value="">все источники</option>
+              <option value="worker">worker</option>
+              <option value="lurker">lurker</option>
+              <option value="site">site</option>
+            </select>
+            <select id="logLevelFilter" style="padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-size:12px">
+              <option value="">все уровни</option>
+              <option value="error">❌ error</option>
+              <option value="warn">⚠️ warn</option>
+              <option value="info">✅ info</option>
+            </select>
+            <button class="btn" onclick="fetchLogs()" style="padding:6px 14px;font-size:12px">🔄 Обновить</button>
+          </div>
+          <div id="logsList" style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,.3);border-radius:12px;padding:8px;font-family:monospace;font-size:11px;line-height:1.6"></div>
         </div>
       </div>
       <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
@@ -520,6 +542,19 @@ async function checkBotStatus2() {
   } catch (e) { status.innerHTML = '❌ Ошибка соединения: ' + e.message; }
 }
 
+async function resetBot2() {
+  const status = document.getElementById('bot2ConfigStatus');
+  if (!confirm('Сбросить бота #2? Придётся авторизовать заново как konstasil.')) return;
+  const wu = await getBotWorkerUrl();
+  if (!wu) { status.innerHTML = '❌ Сначала сохрани URL воркера'; return; }
+  try {
+    const res = await fetch(wu + '/api/reset?bot=2');
+    if (!res.ok) { status.innerHTML = '❌ Ошибка сброса (' + res.status + ')'; return; }
+    status.innerHTML = '🗑 Бот #2 сброшен. Авторизуй заново — войди как <b>konstasil</b>';
+    checkBotStatus2();
+  } catch (e) { status.innerHTML = '❌ ' + e.message; }
+}
+
 // --- Commands per streamer ---
 
 let _cmdsData = {};
@@ -591,9 +626,46 @@ async function populateCmdStreamers() {
   } catch (e) {}
 }
 
+async function fetchLogs() {
+  const container = document.getElementById('logsList');
+  if (!container) return;
+  const sourceFilter = document.getElementById('logSourceFilter')?.value || '';
+  const levelFilter = document.getElementById('logLevelFilter')?.value || '';
+  container.innerHTML = '<p style="color:var(--muted);padding:12px">⏳ Загрузка...</p>';
+  try {
+    const snap = await db.ref('config/logs').once('value');
+    const logs = snap.val();
+    if (!logs || !logs.length) { container.innerHTML = '<p style="color:var(--muted);padding:12px">Нет логов</p>'; return; }
+    const filtered = logs.reverse().filter(e => {
+      if (sourceFilter && e.source !== sourceFilter) return false;
+      if (levelFilter && e.level !== levelFilter) return false;
+      return true;
+    });
+    if (!filtered.length) { container.innerHTML = '<p style="color:var(--muted);padding:12px">Нет записей по фильтру</p>'; return; }
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const colors = { error: '#ef4444', warn: '#f59e0b', info: '#4ade80' };
+    const icons = { error: '❌', warn: '⚠️', info: '✅' };
+    container.innerHTML = filtered.map(e => {
+      const t = e.ts ? new Date(e.ts).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+      const c = colors[e.level] || '#888';
+      const ic = icons[e.level] || '•';
+      const msg = e.message || '';
+      const extra = e.data ? ' ' + esc(JSON.stringify(e.data)).slice(0, 150) : '';
+      return '<div style="padding:6px 10px;border-left:3px solid ' + c + ';margin-bottom:4px;border-radius:0 6px 6px 0;background:rgba(255,255,255,.04)">' +
+        '<span style="color:#888">' + t + '</span>' +
+        '<span style="color:' + c + '"> ' + ic + ' [' + esc(e.source || '?') + ']</span>' +
+        '<span style="color:#ccc"> ' + esc(msg) + '</span>' +
+        '<span style="color:#666;font-size:10px;display:block;padding-left:14px">' + extra + '</span></div>';
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<p style="color:#ef4444;padding:12px">❌ ' + e.message + '</p>';
+  }
+}
+
 // Patch renderAdminPanel to populate streamer select after render
 const _origRenderAdmin = renderAdminPanel;
 renderAdminPanel = function() {
   _origRenderAdmin();
   populateCmdStreamers();
+  setTimeout(fetchLogs, 500);
 };
