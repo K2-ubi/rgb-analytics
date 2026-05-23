@@ -214,8 +214,8 @@ async function loadBannedList() {
   const el = document.getElementById('bannedList');
   if (!el) return;
   const bans = await getBans();
-  const userEntries = Object.entries(bans.users);
-  const ipEntries = Object.entries(bans.ips);
+  const userEntries = Object.entries(bans.users || {});
+  const ipEntries = Object.entries(bans.ips || {});
   if (!userEntries.length && !ipEntries.length) {
     el.innerHTML = '<p class="muted" style="padding:12px 0">⛔ Нет забаненных пользователей</p>';
     return;
