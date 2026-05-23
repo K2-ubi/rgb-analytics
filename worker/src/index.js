@@ -350,18 +350,20 @@ async function monitorStreams(env) {
         results.push({ login: member.login, online: false });
       }
     } catch (e) {
+      await logToFirebase(env, 'worker', 'error', 'monitorStreams member failed: ' + member.login + ' — ' + e.message);
       console.error('monitor error for ' + member.login + ':', e);
       results.push({ login: member.login, error: e.message });
     }
   }
 
   if (Object.keys(cacheUpdates).length) {
-      await firebasePatch(env, '', cacheUpdates);
-    } catch (e) {
-      await logToFirebase(env, 'worker', 'error', 'monitorStreams member failed: ' + member.login + ' — ' + e.message);
-      console.error('monitor error for ' + member.login + ':', e);
-      results.push({ login: member.login, error: e.message });
-    }
+    await firebasePatch(env, '', cacheUpdates);
+  }
+  await firebasePatch(env, 'stream-cache/_monitor', { lastRun: now, results });
+
+  console.log('Monitor results:', JSON.stringify(results));
+  return results;
+}
 
 async function getBotTokenForLurker(url, env, corsHeaders) {
   const bot = parseInt(url.searchParams.get('bot') || '1');
