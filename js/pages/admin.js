@@ -372,7 +372,7 @@ async function deleteBotConfig() {
 function authBot() {
   const input = document.getElementById('botWorkerUrlInput').value.trim();
   if (!input) { document.getElementById('botConfigStatus').innerHTML = '❌ Сначала введи URL воркера'; return; }
-  let url = input;
+  let url = input.replace(/\/+$/, '');
   if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
   url = url.replace(/\/$/, '') + '/api/auth';
   window.open(url, '_blank');

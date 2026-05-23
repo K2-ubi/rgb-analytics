@@ -65,7 +65,9 @@ async function getBotHeaders() {
 
 async function getBotWorkerUrl() {
   const cfg = await getBotConfig();
-  return cfg.workerUrl || null;
+  let url = cfg.workerUrl || null;
+  if (url) url = url.replace(/\/+$/, '');
+  return url;
 }
 
 async function getWorkerBotInfo() {
