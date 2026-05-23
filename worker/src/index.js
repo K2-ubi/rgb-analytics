@@ -15,17 +15,22 @@ const CORS = (origin) => ({
   'X-Frame-Options': 'DENY',
 });
 
+function botSuffix(bot) {
+  return bot === 2 ? '_2' : '';
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
     const corsHeaders = CORS(origin);
     if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
     const url = new URL(request.url);
+    const bot = parseInt(url.searchParams.get('bot') || '1');
     try {
       switch (url.pathname) {
-        case '/api/auth': return auth(env, corsHeaders);
-        case '/api/callback': return callback(url, env, corsHeaders);
-        case '/api/status': return status(env, corsHeaders);
+        case '/api/auth': return auth(env, corsHeaders, bot);
+        case '/api/callback': return callback(url, env, corsHeaders, bot);
+        case '/api/status': return status(env, corsHeaders, bot);
         case '/api/twitch/users': return proxyAsBot(url, env, '/users', corsHeaders);
         case '/api/twitch/streams': return proxyAsBot(url, env, '/streams', corsHeaders);
         case '/api/twitch/chatters': return proxyAsBot(url, env, '/chat/chatters', corsHeaders);
@@ -33,6 +38,7 @@ export default {
         case '/api/twitch/subscriptions': return proxyAsBot(url, env, '/subscriptions', corsHeaders);
         case '/api/twitch/videos': return proxyAsBot(url, env, '/videos', corsHeaders);
         case '/api/monitor-streams': return requireSecret(env, request) ? monitorStreams(env) : json({ error: 'forbidden' }, 403, corsHeaders);
+        case '/api/token': return requireSecret(env, request) ? getBotTokenForLurker(url, env, corsHeaders) : json({ error: 'forbidden' }, 403, corsHeaders);
         case '/api/tracker-summary': return trackerSummary(url, env, corsHeaders);
         default: return json({ error: 'not found' }, 404, corsHeaders);
       }
@@ -41,7 +47,8 @@ export default {
     }
   },
   async scheduled(_event, env) {
-    await getToken(env);
+    try { await getToken(env); } catch (e) {}
+    try { await getToken(env, 2); } catch (e) {}
     await monitorStreams(env);
     await fetchTrackerData(env);
   },
@@ -53,12 +60,13 @@ function requireSecret(env, request) {
   return true;
 }
 
-async function getToken(env) {
-  let at = await env.KV.get('access_token');
-  const exp = parseInt(await env.KV.get('expires_at') || '0');
+async function getToken(env, bot = 1) {
+  const sfx = botSuffix(bot);
+  let at = await env.KV.get('access_token' + sfx);
+  const exp = parseInt(await env.KV.get('expires_at' + sfx) || '0');
   if (at && Date.now() < exp - 120000) return at;
-  const rt = await env.KV.get('refresh_token');
-  if (!rt) throw new Error('No refresh token. Open /api/auth');
+  const rt = await env.KV.get('refresh_token' + sfx);
+  if (!rt) throw new Error('No refresh token for bot ' + bot + '. Open /api/auth?bot=' + bot);
   const r = await fetch(TWITCH_TOKEN, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -68,39 +76,41 @@ async function getToken(env) {
     }),
   });
   const d = await r.json();
-  if (!r.ok) throw new Error('Refresh failed: ' + (d.message || r.status));
-  await env.KV.put('access_token', d.access_token);
-  await env.KV.put('refresh_token', d.refresh_token);
-  await env.KV.put('expires_at', String(Date.now() + (d.expires_in || 14400) * 1000));
-  await saveInfo(env, d.access_token);
+  if (!r.ok) throw new Error('Refresh failed for bot ' + bot + ': ' + (d.message || r.status));
+  await env.KV.put('access_token' + sfx, d.access_token);
+  await env.KV.put('refresh_token' + sfx, d.refresh_token);
+  await env.KV.put('expires_at' + sfx, String(Date.now() + (d.expires_in || 14400) * 1000));
+  await saveInfo(env, d.access_token, sfx);
   return d.access_token;
 }
 
-async function saveInfo(env, token) {
-  if (await env.KV.get('bot_login')) return;
+async function saveInfo(env, token, sfx = '') {
+  if (await env.KV.get('bot_login' + sfx)) return;
   const r = await fetch(TWITCH_API + '/users', {
     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
   });
   const d = await r.json();
   if (d.data?.[0]) {
-    await env.KV.put('bot_login', d.data[0].login);
-    await env.KV.put('bot_display', d.data[0].display_name);
-    await env.KV.put('bot_id', d.data[0].id);
+    await env.KV.put('bot_login' + sfx, d.data[0].login);
+    await env.KV.put('bot_display' + sfx, d.data[0].display_name);
+    await env.KV.put('bot_id' + sfx, d.data[0].id);
   }
 }
 
-function auth(env, _corsHeaders) {
+function auth(env, _corsHeaders, bot = 1) {
+  const sfx = botSuffix(bot);
   const p = new URLSearchParams({
     client_id: env.TWITCH_CLIENT_ID,
-    redirect_uri: env.REDIRECT_URI,
+    redirect_uri: env.REDIRECT_URI + '?bot=' + bot,
     response_type: 'code',
-    scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions',
+    scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions chat:read',
     force_verify: 'true',
   });
   return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
 }
 
-async function callback(url, env, _corsHeaders) {
+async function callback(url, env, _corsHeaders, bot = 1) {
+  const sfx = botSuffix(bot);
   const code = url.searchParams.get('code');
   if (!code) return html('Ошибка: ' + (url.searchParams.get('error') || 'unknown'));
   const r = await fetch(TWITCH_TOKEN, {
@@ -109,23 +119,27 @@ async function callback(url, env, _corsHeaders) {
     body: JSON.stringify({
       client_id: env.TWITCH_CLIENT_ID, client_secret: env.CLIENT_SECRET,
       code, grant_type: 'authorization_code',
-      redirect_uri: env.REDIRECT_URI,
+      redirect_uri: env.REDIRECT_URI + '?bot=' + bot,
     }),
   });
   const d = await r.json();
   if (!r.ok) return html('Ошибка: ' + (d.message || r.status));
-  await env.KV.put('access_token', d.access_token);
-  await env.KV.put('refresh_token', d.refresh_token);
-  await env.KV.put('expires_at', String(Date.now() + (d.expires_in || 14400) * 1000));
-  await saveInfo(env, d.access_token);
-  const login = await env.KV.get('bot_display') || await env.KV.get('bot_login') || 'бот';
-  return html(login + ' ✅ авторизован!<br><span style="font-size:14px">Закрой окно → в админке нажми Статус</span>', true);
+  await env.KV.put('access_token' + sfx, d.access_token);
+  await env.KV.put('refresh_token' + sfx, d.refresh_token);
+  await env.KV.put('expires_at' + sfx, String(Date.now() + (d.expires_in || 14400) * 1000));
+  await saveInfo(env, d.access_token, sfx);
+  const login = await env.KV.get('bot_display' + sfx) || await env.KV.get('bot_login' + sfx) || 'бот ' + bot;
+  const botLabel = bot === 2 ? ' (второй аккаунт)' : '';
+  return html(login + ' ✅ авторизован' + botLabel + '!<br><span style="font-size:14px">Закрой окно → в админке нажми Статус</span>', true);
 }
 
 async function proxyAsBot(url, env, path, corsHeaders) {
-  const token = await getToken(env);
+  const bot = parseInt(url.searchParams.get('bot') || '1');
+  const token = await getToken(env, bot);
+  const sfx = botSuffix(bot);
   const q = new URLSearchParams(url.search);
-  const botId = await env.KV.get('bot_id');
+  q.delete('bot');
+  const botId = await env.KV.get('bot_id' + sfx);
   if (botId && path === '/chat/chatters') q.set('moderator_id', botId);
   const r = await fetch(TWITCH_API + path + '?' + q, {
     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.TWITCH_CLIENT_ID },
@@ -137,12 +151,14 @@ async function proxyAsBot(url, env, path, corsHeaders) {
   });
 }
 
-async function status(env, corsHeaders) {
-  const exp = parseInt(await env.KV.get('expires_at') || '0');
+async function status(env, corsHeaders, bot = 1) {
+  const sfx = botSuffix(bot);
+  const exp = parseInt(await env.KV.get('expires_at' + sfx) || '0');
   return json({
-    configured: !!(await env.KV.get('access_token')),
-    bot_login: await env.KV.get('bot_login'),
-    bot_display: await env.KV.get('bot_display'),
+    bot: bot,
+    configured: !!(await env.KV.get('access_token' + sfx)),
+    bot_login: await env.KV.get('bot_login' + sfx),
+    bot_display: await env.KV.get('bot_display' + sfx),
     expires_at: exp,
     expires_in: Math.max(0, Math.floor((exp - Date.now()) / 1000)),
   }, 200, corsHeaders);
@@ -263,6 +279,18 @@ async function monitorStreams(env) {
         };
 
         results.push({ login: member.login, online: true, viewers, peakViewers, game: stream.game_name, durationMins });
+
+        try {
+          const bot2Token = await getToken(env, 2);
+          if (bot2Token) {
+            const bot2Id = await env.KV.get('bot_id_2');
+            if (bot2Id && bot2Id !== userId) {
+              await fetch(TWITCH_API + '/chat/chatters?broadcaster_id=' + userId + '&moderator_id=' + bot2Id + '&first=1', {
+                headers: { 'Authorization': 'Bearer ' + bot2Token, 'Client-Id': env.TWITCH_CLIENT_ID },
+              });
+            }
+          }
+        } catch (e) {}
       } else {
         if (wasLive) {
           const startedAt = await env.KV.get(startedKey);
@@ -294,6 +322,20 @@ async function monitorStreams(env) {
 
   console.log('Monitor results:', JSON.stringify(results));
   return results;
+}
+
+async function getBotTokenForLurker(url, env, corsHeaders) {
+  const bot = parseInt(url.searchParams.get('bot') || '1');
+  const sfx = botSuffix(bot);
+  try {
+    const token = await getToken(env, bot);
+    const login = await env.KV.get('bot_login' + sfx);
+    const display = await env.KV.get('bot_display' + sfx);
+    const id = await env.KV.get('bot_id' + sfx);
+    return json({ token, login, display, id, bot }, 200, corsHeaders);
+  } catch (e) {
+    return json({ error: e.message, bot }, 400, corsHeaders);
+  }
 }
 
 async function trackerSummary(url, env, corsHeaders) {

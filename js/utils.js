@@ -96,10 +96,12 @@ function setActiveTab(login, active) {
   const ct = document.getElementById('tabCalendar_' + safe);
   const tt = document.getElementById('tabTracker_' + safe);
   const at = document.getElementById('tabAvg_' + safe);
+  const cm = document.getElementById('tabCmds_' + safe);
   if (vt) vt.className = 'tab-btn' + (active === 'viewer' ? ' active' : '');
   if (ct) ct.className = 'tab-btn' + (active === 'calendar' ? ' active' : '');
   if (tt) tt.className = 'tab-btn' + (active === 'tracker' ? ' active' : '');
   if (at) at.className = 'tab-btn' + (active === 'avg' ? ' active' : '');
+  if (cm) cm.className = 'tab-btn' + (active === 'cmds' ? ' active' : '');
 }
 
 function getMySquadGroup() {

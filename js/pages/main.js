@@ -283,11 +283,13 @@ async function openCreator(name) {
           <button class="tab-btn" id="tabCalendar_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${name}', '${user?.id || ''}')">📅 Календарь стримов</button>
           <button class="tab-btn" id="tabTracker_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${name}', '${user?.id || ''}')">📊 Общие данные</button>
           <button class="tab-btn" id="tabAvg_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderAvgOnline('${name}', '${user?.id || ''}')">📈 Средний онлайн</button>
+          <button class="tab-btn" id="tabCmds_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamerCommands('${name}')">⚙️ Команды</button>
         </div>
         <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
         <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="trackerContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="avgOnlineContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+        <div id="cmdsContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
       </main>
     </div>`;
   show('creatorPage');
@@ -295,6 +297,61 @@ async function openCreator(name) {
     viewerTracker.start(user.id, name);
     setTimeout(() => viewerTracker.renderTable(), 2000);
   }
+  renderStreamerCommands(name);
+}
+
+async function renderStreamerCommands(login) {
+  const safe = login.replace(/[^a-z0-9]/gi, '');
+  setActiveTab(login, 'cmds');
+  viewerTracker.stop();
+  const ve = document.getElementById('viewerAnalysis');
+  if (ve) ve.style.display = 'none';
+  const cal = document.getElementById('streamCalendarContainer_' + safe);
+  if (cal) cal.style.display = 'none';
+  const tr = document.getElementById('trackerContainer_' + safe);
+  if (tr) tr.style.display = 'none';
+  const avgEl = document.getElementById('avgOnlineContainer_' + safe);
+  if (avgEl) avgEl.style.display = 'none';
+  const container = document.getElementById('cmdsContainer_' + safe);
+  if (!container) return;
+  container.style.display = 'block';
+  try {
+    const snap = await db.ref('config/commands/' + login).once('value');
+    const cmds = snap.val() || {};
+    const entries = Object.entries(cmds);
+    let html = '<div class="page-card" style="margin-top:24px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
+    html += '<div><h2 style="font-size:24px">⚙️ Команды канала</h2><p class="muted">Чат-команды для @' + login + '</p></div>';
+    if (isAdmin()) {
+      html += '<button class="btn" onclick="openCmdsInAdmin(\'' + login + '\')" style="padding:8px 14px;font-size:13px">✏️ Редактировать в админке</button>';
+    }
+    html += '</div>';
+    if (entries.length) {
+      html += '<div style="display:grid;gap:10px">';
+      for (const [cmd, response] of entries) {
+        const isUrl = response.startsWith('http://') || response.startsWith('https://');
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+        html += '<span style="font-family:monospace;font-weight:700;color:#a855f7;font-size:15px;min-width:80px">' + cmd + '</span>';
+        html += '<span style="flex:1;font-size:14px;color:var(--muted)">' + (isUrl ? '<a href="' + response + '" target="_blank" style="color:#22d3ee;text-decoration:none">' + response + '</a>' : response) + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+    } else {
+      html += '<p class="muted" style="padding:20px;text-align:center">Команды не настроены</p>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
+  }
+}
+
+function openCmdsInAdmin(login) {
+  navigate('/admin', true);
+  setTimeout(() => {
+    const select = document.getElementById('cmdStreamerSelect');
+    if (select) { select.value = login; loadCmds(); }
+  }, 500);
 }
 
 async function renderMyProfile() {
@@ -408,11 +465,13 @@ async function renderMyProfile() {
           <button class="tab-btn" id="tabCalendar_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamCalendar('${user.login}', '${user.id}')">📅 Календарь стримов</button>
           <button class="tab-btn" id="tabTracker_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${user.login}', '${user.id}')">📊 Общие данные</button>
           <button class="tab-btn" id="tabAvg_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderAvgOnline('${user.login}', '${user.id}')">📈 Средний онлайн</button>
+          <button class="tab-btn" id="tabCmds_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamerCommands('${user.login}')">⚙️ Команды</button>
         </div>
         <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
         <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="trackerContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="avgOnlineContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+        <div id="cmdsContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
       </main>
     </div>`;
   show('creatorPage');
@@ -421,6 +480,7 @@ async function renderMyProfile() {
     viewerTracker.start(user.id, user.login);
     setTimeout(() => viewerTracker.renderTable(), 2000);
   }
+  renderStreamerCommands(user.login);
 }
 
 async function renderViewersPage() {
