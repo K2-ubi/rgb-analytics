@@ -83,24 +83,6 @@ function renderAdminPanel() {
         </div>
       </div>
       <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
-        <p class="muted" style="margin-bottom:12px">💤 IRC Lurker (реальное сидение в чате)</p>
-        <div style="display:grid;gap:12px;font-size:13px;line-height:1.6;color:var(--muted)">
-          <p>Для реального присутствия в чате (бот заходит в чат, ничего не пишет, но Twitch видит его как зрителя) задеплой <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">render/</code> на Render как <b>Web Service</b> (бесплатно):</p>
-          <pre style="background:rgba(0,0,0,.4);padding:14px;border-radius:12px;font-size:12px;line-height:1.7;overflow-x:auto;color:#4ade80">
-  1. В Render → New Web Service → подключи репозиторий
-  2. Root Directory: render
-  3. Start Command: node index.js
-  4. Переменные окружения:
-     WORKER_URL = ${(document.getElementById('botWorkerUrlInput')?.value || 'https://ваш-воркер.workers.dev')}
-     FIREBASE_SECRET = (твой Firebase Database Secret)
-  5. 🔥 Чтобы не вырубалось — настрой Uptime Robot
-     или cron-job.org на /health раз в 10 минут</pre>
-          <p>🔑 <code>FIREBASE_SECRET</code> — в Firebase Console → Project Settings → Service Accounts → Database Secrets</p>
-          <p>Оба бота должны быть предварительно авторизованы через кнопки выше (они получат scope <code>chat:read</code>).</p>
-          <div id="lurkerUrlHint" style="font-size:12px;padding:10px;border-radius:10px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.15)">🔄 URL воркера подставится после сохранения в секции выше</div>
-        </div>
-      </div>
-      <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
         <p class="muted" style="margin-bottom:12px">🔐 Localhost-логин (Ctrl+I+9)</p>
         <div style="display:grid;gap:12px">
           <input type="text" id="localhostPassInput" placeholder="Пароль для входа через Ctrl+I+9" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
@@ -609,16 +591,9 @@ async function populateCmdStreamers() {
   } catch (e) {}
 }
 
-// Patch renderAdminPanel to populate streamer select and lurker URL after render
+// Patch renderAdminPanel to populate streamer select after render
 const _origRenderAdmin = renderAdminPanel;
 renderAdminPanel = function() {
   _origRenderAdmin();
   populateCmdStreamers();
-  setTimeout(() => {
-    const hint = document.getElementById('lurkerUrlHint');
-    const input = document.getElementById('botWorkerUrlInput');
-    if (hint && input?.value) {
-      hint.innerHTML = '✅ URL воркера: <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">' + input.value.replace(/\/$/, '') + '</code>';
-    }
-  }, 100);
 };
