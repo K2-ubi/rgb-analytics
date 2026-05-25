@@ -56,46 +56,62 @@ async function loadTwitchUsers(force) {
   const all = snap.val();
   if (!all) { cachedUsers = []; cachedUsersTime = now; return []; }
   const logins = Object.keys(all);
+
+  // Читаем stream-cache из Firebase (пишется воркером каждую минуту)
+  let streamCache = {};
+  try {
+    const scSnap = await db.ref('stream-cache').once('value');
+    const sc = scSnap.val() || {};
+    for (const [login, data] of Object.entries(sc)) {
+      if (data && data.live) streamCache[login] = data;
+    }
+  } catch (e) {}
+
   const members = [];
+  let userMap = {};
+
+  // Пробуем получить профили из Twitch API (токен пользователя)
   if (token && logins.length > 0) {
     try {
       const url = 'https://api.twitch.tv/helix/users?login=' + logins.join('&login=');
       const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } });
       const data = await res.json();
-      const userMap = {};
       data.data.forEach(u => { userMap[u.login.toLowerCase()] = u; });
-      const ids = data.data.map(u => u.id).filter(Boolean);
-      let streamMap = {};
-      if (ids.length > 0) {
-        const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + ids.join('&user_id='), { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } });
-        const stData = await stRes.json();
-        stData.data.forEach(s => { streamMap[s.user_id] = s; });
-      }
-      for (const login of logins) {
-        const u = userMap[login]; const s = u ? streamMap[u.id] : null;
-        members.push({ login, roles: all[login].roles || {}, displayName: u ? u.display_name : all[login].displayName || login, profileImageUrl: u ? u.profile_image_url : all[login].profileImageUrl || '', description: u ? u.description : all[login].description || '', twitchId: u ? u.id : all[login].twitchId, stream: s, isLive: !!s, viewers: s ? s.viewer_count : 0, gameName: s ? s.game_name : '', streamTitle: s ? s.title : '', followers: 0 });
-      }
-      const modId = currentTwitchUser?.id || '';
-      const botToken = await getBotToken();
-      if (modId) {
-        await Promise.all(members.filter(m => m.twitchId).map(async (m) => {
-          try {
-            const fModId = botToken?.id || modId;
-            const fHdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-            const fRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + fModId + '&first=1', { headers: fHdrs });
-            if (fRes.ok) { const fData = await fRes.json(); m.followers = fData.total || 0; }
-          } catch (e) {}
-        }));
-      }
-    } catch (e) {
-      for (const login of logins) {
-        members.push({ login, roles: all[login].roles || {}, displayName: all[login].displayName || login, profileImageUrl: all[login].profileImageUrl || '', description: all[login].description || '', twitchId: all[login].twitchId, stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: '', followers: 0 });
-      }
-    }
-  } else {
-    for (const login of logins) {
-      members.push({ login, roles: all[login].roles || {}, displayName: all[login].displayName || login, profileImageUrl: all[login].profileImageUrl || '', description: all[login].description || '', twitchId: all[login].twitchId, stream: null, isLive: false, viewers: 0, gameName: '', streamTitle: '', followers: 0 });
-    }
+    } catch (e) {}
+  }
+
+  for (const login of logins) {
+    const u = userMap[login];
+    const sc = streamCache[login];
+    members.push({
+      login,
+      roles: all[login].roles || {},
+      displayName: u ? u.display_name : all[login].displayName || login,
+      profileImageUrl: u ? u.profile_image_url : all[login].profileImageUrl || '',
+      description: u ? u.description : all[login].description || '',
+      twitchId: u ? u.id : all[login].twitchId,
+      stream: sc ? sc : null,
+      isLive: !!sc,
+      viewers: sc ? sc.viewers : 0,
+      peakViewers: sc ? sc.peakViewers : 0,
+      gameName: sc ? sc.game : '',
+      streamTitle: sc ? sc.title : '',
+      startedAt: sc ? sc.startedAt : null,
+      followers: 0,
+    });
+  }
+
+  // Фолловеры — через бота или токен пользователя
+  const botToken = await getBotToken();
+  const modId = botToken?.id || currentTwitchUser?.id || '';
+  if (modId) {
+    await Promise.all(members.filter(m => m.twitchId).map(async (m) => {
+      try {
+        const fHdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+        const fRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1', { headers: fHdrs });
+        if (fRes.ok) { const fData = await fRes.json(); m.followers = fData.total || 0; }
+      } catch (e) {}
+    }));
   }
   cachedUsers = members;
   cachedUsersTime = Date.now();
