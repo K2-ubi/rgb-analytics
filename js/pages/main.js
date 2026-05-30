@@ -480,12 +480,12 @@ async function saveStreamerCmd(login, cmdName) {
   if (!currentUser) { alert('❌ Не удалось определить текущего пользователя'); return; }
 
   const path = 'config/commands/' + login + '/' + name;
-  const headers = { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser };
+  const headers = { 'Content-Type': 'application/json' };
   try { const at = await getAppCheckToken(); if (at) headers['X-Firebase-AppCheck'] = at; } catch {}
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path), {
+      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path) + '&adminLogin=' + encodeURIComponent(currentUser), {
         method: 'PATCH', headers, body: JSON.stringify(data),
       });
       if (!res.ok) {
@@ -509,12 +509,12 @@ async function deleteStreamerCmd(login, cmdName) {
   if (!currentUser) { alert('❌ Не удалось определить пользователя'); return; }
 
   const path = 'config/commands/' + login + '/' + cmdName;
-  const headers = { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser };
+  const headers = { 'Content-Type': 'application/json' };
   try { const at = await getAppCheckToken(); if (at) headers['X-Firebase-AppCheck'] = at; } catch {}
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path), {
+      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path) + '&adminLogin=' + encodeURIComponent(currentUser), {
         method: 'PATCH', headers, body: JSON.stringify({ '.value': null }),
       });
       if (!res.ok) {

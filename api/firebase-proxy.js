@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   if (!(await verifyAppCheck(req, res))) return;
 
   const uid = req.headers['x-firebase-uid'];
-  const adminLogin = req.headers['x-admin-login'];
+  const adminLogin = req.headers['x-admin-login'] || req.query.adminLogin;
   if (!uid && !adminLogin) return res.status(401).json({ error: 'X-Firebase-UID or X-Admin-Login header required' });
 
   try {
