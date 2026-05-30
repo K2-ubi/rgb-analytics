@@ -318,6 +318,10 @@ async function openCreator(name) {
   renderStreamerCommands(name);
 }
 
+function getCurrentLogin() {
+  return localStorage.getItem('twitch_login') || (typeof currentTwitchUser !== 'undefined' && currentTwitchUser?.login) || '';
+}
+
 async function renderStreamerCommands(login) {
   const safe = login.replace(/[^a-z0-9]/gi, '');
   setActiveTab(login, 'cmds');
@@ -334,7 +338,7 @@ async function renderStreamerCommands(login) {
   if (!container) return;
   container.style.display = 'block';
 
-  const currentUser = localStorage.getItem('twitch_login');
+  const currentUser = getCurrentLogin();
   const canEdit = isAdmin() || currentUser === login;
 
   try {
@@ -472,7 +476,7 @@ async function saveStreamerCmd(login, cmdName) {
     action: actionSelect.value,
   };
 
-  const currentUser = localStorage.getItem('twitch_login');
+  const currentUser = getCurrentLogin();
   if (!currentUser) { alert('❌ Не удалось определить текущего пользователя'); return; }
 
   const path = 'config/commands/' + login + '/' + name;
@@ -501,7 +505,7 @@ async function saveStreamerCmd(login, cmdName) {
 async function deleteStreamerCmd(login, cmdName) {
   if (!confirm('Удалить команду !' + cmdName + '?')) return;
 
-  const currentUser = localStorage.getItem('twitch_login');
+  const currentUser = getCurrentLogin();
   if (!currentUser) { alert('❌ Не удалось определить пользователя'); return; }
 
   const path = 'config/commands/' + login + '/' + cmdName;
