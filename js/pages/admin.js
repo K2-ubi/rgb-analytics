@@ -62,7 +62,7 @@ function renderAdminPanel() {
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn" onclick="checkLurkerStatus()">🔄 Статус луркера</button>
           </div>
-          <p class="muted" style="font-size:12px;line-height:1.5">Статус IRC-подключения ботов к каналам сквада. Боты отправляют "!" раз в 10 мин для имитации активности зрителя.</p>
+          <p class="muted" style="font-size:12px;line-height:1.5">Статус IRC-подключения ботов к каналам сквада и PubSub WebSocket для баллов канала.</p>
           <div id="lurkerStatus" class="muted" style="font-size:13px"></div>
         </div>
       </div>
@@ -76,21 +76,6 @@ function renderAdminPanel() {
             <button class="btn" onclick="testBotToken()">🧪 Проверить токен</button>
           </div>
           <p class="muted" style="font-size:12px">Используй если нет Cloudflare Worker. Токен живет 4 часа, надо обновлять вручную.</p>
-        </div>
-      </div>
-      <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
-        <p class="muted" style="margin-bottom:12px">⚙️ Команды для стримеров (!тг, !discord и т.д.)</p>
-        <div style="display:grid;gap:12px">
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <select id="cmdStreamerSelect" style="flex:1;min-width:160px;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white"></select>
-          </div>
-          <div style="display:grid;gap:8px" id="cmdsList"></div>
-          <div style="display:flex;gap:10px">
-            <button class="btn" onclick="addCmdRow()">➕ Добавить команду</button>
-            <button class="btn primary" onclick="saveCmds()">💾 Сохранить команды</button>
-            <button class="btn" onclick="loadCmds()">🔄 Загрузить</button>
-          </div>
-          <div id="cmdsStatus" class="muted" style="font-size:13px"></div>
         </div>
       </div>
       <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
@@ -577,77 +562,6 @@ async function resetBot2() {
   } catch (e) { status.innerHTML = '❌ ' + e.message; }
 }
 
-// --- Commands per streamer ---
-
-let _cmdsData = {};
-
-function renderCmdRow(key, val) {
-  const id = 'cmd_' + Math.random().toString(36).slice(2, 8);
-  return '<div style="display:flex;gap:8px;align-items:center" id="' + id + '_row">' +
-    '<input type="text" class="cmdKey" placeholder="!команда" value="' + (key || '').replace(/"/g, '&quot;') + '" style="flex:1;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-family:monospace;font-size:13px">' +
-    '<input type="text" class="cmdVal" placeholder="ответ или ссылка" value="' + (val || '').replace(/"/g, '&quot;') + '" style="flex:2;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-size:13px">' +
-    '<button class="btn" onclick="this.closest(\'[id$=_row]\').remove()" style="padding:6px 10px;font-size:12px;border-color:rgba(239,68,68,.3)">✕</button></div>';
-}
-
-function addCmdRow(key, val) {
-  const list = document.getElementById('cmdsList');
-  if (list) list.insertAdjacentHTML('beforeend', renderCmdRow(key, val));
-}
-
-async function loadCmds() {
-  const status = document.getElementById('cmdsStatus');
-  const select = document.getElementById('cmdStreamerSelect');
-  const login = select?.value;
-  if (!login) { status.textContent = '❌ Выбери стримера'; return; }
-  try {
-    const snap = await db.ref('config/commands/' + login).once('value');
-    const cmds = snap.val() || {};
-    _cmdsData = cmds;
-    const list = document.getElementById('cmdsList');
-    if (list) {
-      list.innerHTML = '';
-      for (const [k, v] of Object.entries(cmds)) addCmdRow(k, v);
-      if (!Object.keys(cmds).length) addCmdRow('', '');
-    }
-    status.textContent = '✅ Команды загружены (' + Object.keys(cmds).length + ')';
-  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
-}
-
-async function saveCmds() {
-  const status = document.getElementById('cmdsStatus');
-  const select = document.getElementById('cmdStreamerSelect');
-  const login = select?.value;
-  if (!login) { status.textContent = '❌ Выбери стримера'; return; }
-  const rows = document.querySelectorAll('#cmdsList [id$=_row]');
-  const cmds = {};
-  for (const row of rows) {
-    const key = row.querySelector('.cmdKey')?.value.trim();
-    const val = row.querySelector('.cmdVal')?.value.trim();
-    if (key) cmds[key] = val || '';
-  }
-  try {
-    await adminProxy('PATCH', 'config/commands/' + login, cmds);
-    _cmdsData = cmds;
-    status.textContent = '✅ Сохранено ' + Object.keys(cmds).length + ' команд для @' + login;
-  } catch (e) { status.textContent = '❌ Ошибка: ' + e.message; }
-}
-
-async function populateCmdStreamers() {
-  const select = document.getElementById('cmdStreamerSelect');
-  if (!select) return;
-  try {
-    const snap = await db.ref('twitch-users').once('value');
-    const users = snap.val() || {};
-    select.innerHTML = '<option value="">— выбери стримера —</option>' +
-      Object.entries(users)
-        .filter(([, u]) => u.roles && (u.roles.squad || u.roles.academy))
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([login, u]) => '<option value="' + login + '">' + (u.displayName || login) + ' (@' + login + ')</option>')
-        .join('');
-    select.onchange = loadCmds;
-  } catch (e) {}
-}
-
 async function fetchLogs() {
   const container = document.getElementById('logsList');
   if (!container) return;
@@ -713,11 +627,10 @@ async function checkLurkerStatus() {
   }
 }
 
-// Patch renderAdminPanel to populate streamer select after render
+// Patch renderAdminPanel
 const _origRenderAdmin = renderAdminPanel;
 renderAdminPanel = function() {
   _origRenderAdmin();
-  populateCmdStreamers();
   setTimeout(fetchLogs, 500);
   setTimeout(checkLurkerStatus, 1000);
 };

@@ -333,24 +333,39 @@ async function renderStreamerCommands(login) {
   const container = document.getElementById('cmdsContainer_' + safe);
   if (!container) return;
   container.style.display = 'block';
+
+  const currentUser = localStorage.getItem('twitch_login');
+  const canEdit = isAdmin() || currentUser === login;
+
   try {
     const snap = await db.ref('config/commands/' + login).once('value');
     const cmds = snap.val() || {};
     const entries = Object.entries(cmds);
+
     let html = '<div class="page-card" style="margin-top:24px">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
     html += '<div><h2 style="font-size:24px">⚙️ Команды канала</h2><p class="muted">Чат-команды для @' + login + '</p></div>';
-    if (isAdmin()) {
-      html += '<button class="btn" onclick="openCmdsInAdmin(\'' + login + '\')" style="padding:8px 14px;font-size:13px">✏️ Редактировать в админке</button>';
+    if (canEdit) {
+      html += '<button class="btn primary" onclick="editStreamerCmd(\'' + login + '\', null)">➕ Добавить команду</button>';
     }
     html += '</div>';
+
     if (entries.length) {
       html += '<div style="display:grid;gap:10px">';
-      for (const [cmd, response] of entries) {
-        const isUrl = response.startsWith('http://') || response.startsWith('https://');
+      const permLabels = { 'все': '👥 все', 'випка': '⭐ Вип', 'редакторка': '📝 Ред', 'модерка': '🔨 Мод', 'стример': '👑 Стрим' };
+      const actionLabels = { 'reply': 'ответить', 'ping': 'пинговать', 'send': 'отправить' };
+      for (const [cmd, cfg] of entries) {
+        const cfgObj = typeof cfg === 'string' ? { response: cfg, permission: 'все', action: 'reply' } : cfg;
+        const isUrl = typeof cfgObj.response === 'string' && (cfgObj.response.startsWith('http://') || cfgObj.response.startsWith('https://'));
         html += '<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
-        html += '<span style="font-family:monospace;font-weight:700;color:#a855f7;font-size:15px;min-width:80px">' + cmd + '</span>';
-        html += '<span style="flex:1;font-size:14px;color:var(--muted)">' + (isUrl ? '<a href="' + response + '" target="_blank" style="color:#22d3ee;text-decoration:none">' + response + '</a>' : response) + '</span>';
+        html += '<span style="font-family:monospace;font-weight:700;color:#a855f7;font-size:15px;min-width:80px">!' + cmd + '</span>';
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--muted)">' + (permLabels[cfgObj.permission] || '👥 все') + '</span>';
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--muted)">' + (actionLabels[cfgObj.action] || 'ответить') + '</span>';
+        html += '<span style="flex:1;font-size:14px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (isUrl ? '<a href="' + cfgObj.response + '" target="_blank" style="color:#22d3ee">ссылка</a>' : cfgObj.response) + '</span>';
+        if (canEdit) {
+          html += '<button class="btn" onclick="editStreamerCmd(\'' + login + '\', \'' + cmd + '\')" style="padding:4px 10px;font-size:12px">✏️</button>';
+          html += '<button class="btn" onclick="deleteStreamerCmd(\'' + login + '\', \'' + cmd + '\')" style="padding:4px 10px;font-size:12px;border-color:rgba(239,68,68,.3)">✕</button>';
+        }
         html += '</div>';
       }
       html += '</div>';
@@ -358,18 +373,147 @@ async function renderStreamerCommands(login) {
       html += '<p class="muted" style="padding:20px;text-align:center">Команды не настроены</p>';
     }
     html += '</div>';
+    // Embed data for editor (hidden)
+    html += '<span id="cmdsListData_' + safe + '" style="display:none">' + JSON.stringify(cmds).replace(/</g, '\\u003C') + '</span>';
     container.innerHTML = html;
   } catch (e) {
     container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
   }
 }
 
-function openCmdsInAdmin(login) {
-  navigate('/admin', true);
-  setTimeout(() => {
-    const select = document.getElementById('cmdStreamerSelect');
-    if (select) { select.value = login; loadCmds(); }
-  }, 500);
+async function editStreamerCmd(login, cmdName) {
+  const safe = login.replace(/[^a-z0-9]/gi, '');
+  const container = document.getElementById('cmdsContainer_' + safe);
+  let cmdData = { response: '', permission: 'все', action: 'reply' };
+
+  if (cmdName) {
+    try {
+      const snap = await db.ref('config/commands/' + login + '/' + cmdName).once('value');
+      const existing = snap.val();
+      if (existing) {
+        cmdData = typeof existing === 'string' ? { response: existing, permission: 'все', action: 'reply' } : existing;
+      }
+    } catch {}
+  }
+
+  const permOptions = ['все', 'випка', 'редакторка', 'модерка', 'стример'];
+  const permLabels = { 'все': '👥 все', 'випка': '⭐ Вип', 'редакторка': '📝 Ред', 'модерка': '🔨 Мод', 'стример': '👑 Стрим' };
+  const actionOptions = ['reply', 'ping', 'send'];
+  const actionLabels = { 'reply': '💬 ответить', 'ping': '🔔 пинговать', 'send': '📨 отправить' };
+
+  let html = '<div class="page-card" style="margin-top:24px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
+  html += '<div><h2 style="font-size:24px">' + (cmdName ? '✏️ ' + cmdName : '➕ Новая команда') + '</h2><p class="muted">для @' + login + '</p></div>';
+  html += '<button class="btn" onclick="renderStreamerCommands(\'' + login + '\')" style="padding:8px 14px;font-size:13px">← Назад</button>';
+  html += '</div>';
+  html += '<div style="display:grid;gap:14px">';
+
+  // Command name
+  html += '<div><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:4px">Команда (без !)</label>';
+  if (cmdName) {
+    html += '<input type="text" id="gcmd_name" value="' + cmdName + '" readonly style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.3);color:#888;font-family:monospace;font-size:14px">';
+  } else {
+    html += '<input type="text" id="gcmd_name" placeholder="катг" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-family:monospace;font-size:14px">';
+  }
+  html += '</div>';
+
+  // Permission
+  html += '<div><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:4px">Права</label>';
+  html += '<select id="gcmd_perm" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-size:14px">';
+  for (const p of permOptions) {
+    html += '<option value="' + p + '"' + (cmdData.permission === p ? ' selected' : '') + '>' + (permLabels[p] || p) + '</option>';
+  }
+  html += '</select></div>';
+
+  // Action type
+  html += '<div><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:4px">Тип ответа</label>';
+  html += '<select id="gcmd_action" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-size:14px">';
+  for (const a of actionOptions) {
+    html += '<option value="' + a + '"' + (cmdData.action === a ? ' selected' : '') + '>' + (actionLabels[a] || a) + '</option>';
+  }
+  html += '</select></div>';
+
+  // Response template
+  html += '<div><label style="display:block;font-size:13px;color:var(--muted);margin-bottom:4px">Шаблон ответа</label>';
+  html += '<div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:8px">';
+  html += 'Доступно: <code>${Значение}</code> — текст после команды, ';
+  html += '<code>${СменаКатегории"..."}</code> — сменить категорию, ';
+  html += '<code>${УбрУчаст}</code> — не писать в чат. ';
+  html += '<code>\'\'</code> (пустой ответ) = ничего не писать в чат.</div>';
+  html += '<textarea id="gcmd_response" placeholder="Пример: Категория изменена на ${Значение}${СменаКатегории&quot;${Значение}&quot;}" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white;font-size:14px;font-family:monospace;resize:vertical;min-height:80px">' + (cmdData.response || '').replace(/"/g, '&quot;') + '</textarea>';
+  html += '</div>';
+
+  // Buttons
+  html += '<div style="display:flex;gap:10px">';
+  html += '<button class="btn primary" onclick="saveStreamerCmd(\'' + login + '\', \'' + (cmdName || '') + '\')" style="flex:1">💾 Сохранить</button>';
+  if (cmdName) {
+    html += '<button class="btn" onclick="deleteStreamerCmd(\'' + login + '\', \'' + cmdName + '\')" style="border-color:rgba(239,68,68,.3);color:#fca5a5">🗑 Удалить</button>';
+  }
+  html += '<button class="btn" onclick="renderStreamerCommands(\'' + login + '\')">Отмена</button>';
+  html += '</div>';
+
+  html += '</div></div>';
+  container.innerHTML = html;
+}
+
+async function saveStreamerCmd(login, cmdName) {
+  const nameInput = document.getElementById('gcmd_name');
+  const permSelect = document.getElementById('gcmd_perm');
+  const actionSelect = document.getElementById('gcmd_action');
+  const responseInput = document.getElementById('gcmd_response');
+  if (!nameInput || !responseInput) return;
+
+  const name = (cmdName || nameInput.value.trim().toLowerCase());
+  if (!name) { alert('Введите имя команды'); return; }
+
+  const data = {
+    response: responseInput.value.trim(),
+    permission: permSelect.value,
+    action: actionSelect.value,
+  };
+
+  try {
+    const token = localStorage.getItem('github_token') || localStorage.getItem('twitch_token') || '';
+    const loginName = localStorage.getItem('twitch_login') || 'unknown';
+    const res = await fetch('/api/firebase-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: 'config/commands/' + login + '/' + name,
+        data,
+        token,
+        login: loginName,
+        method: 'PATCH',
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    renderStreamerCommands(login);
+  } catch (e) {
+    alert('❌ Ошибка: ' + e.message);
+  }
+}
+
+async function deleteStreamerCmd(login, cmdName) {
+  if (!confirm('Удалить команду !' + cmdName + '?')) return;
+  try {
+    const token = localStorage.getItem('github_token') || localStorage.getItem('twitch_token') || '';
+    const loginName = localStorage.getItem('twitch_login') || 'unknown';
+    const res = await fetch('/api/firebase-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path: 'config/commands/' + login + '/' + cmdName,
+        data: { '.value': null },
+        token,
+        login: loginName,
+        method: 'POST',
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    renderStreamerCommands(login);
+  } catch (e) {
+    alert('❌ Ошибка: ' + e.message);
+  }
 }
 
 async function renderPollView(login) {
