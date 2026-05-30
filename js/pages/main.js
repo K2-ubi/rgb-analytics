@@ -473,20 +473,13 @@ async function saveStreamerCmd(login, cmdName) {
   };
 
   try {
-    const token = localStorage.getItem('github_token') || localStorage.getItem('twitch_token') || '';
-    const loginName = localStorage.getItem('twitch_login') || 'unknown';
-    const res = await fetch('/api/firebase-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        path: 'config/commands/' + login + '/' + name,
-        data,
-        token,
-        login: loginName,
-        method: 'PATCH',
-      }),
+    const currentUser = localStorage.getItem('twitch_login') || 'unknown';
+    const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent('config/commands/' + login + '/' + name), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser },
+      body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'HTTP ' + res.status); }
     renderStreamerCommands(login);
   } catch (e) {
     alert('❌ Ошибка: ' + e.message);
@@ -496,20 +489,13 @@ async function saveStreamerCmd(login, cmdName) {
 async function deleteStreamerCmd(login, cmdName) {
   if (!confirm('Удалить команду !' + cmdName + '?')) return;
   try {
-    const token = localStorage.getItem('github_token') || localStorage.getItem('twitch_token') || '';
-    const loginName = localStorage.getItem('twitch_login') || 'unknown';
-    const res = await fetch('/api/firebase-proxy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        path: 'config/commands/' + login + '/' + cmdName,
-        data: { '.value': null },
-        token,
-        login: loginName,
-        method: 'POST',
-      }),
+    const currentUser = localStorage.getItem('twitch_login') || 'unknown';
+    const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent('config/commands/' + login + '/' + cmdName), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser },
+      body: JSON.stringify({ '.value': null }),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'HTTP ' + res.status); }
     renderStreamerCommands(login);
   } catch (e) {
     alert('❌ Ошибка: ' + e.message);

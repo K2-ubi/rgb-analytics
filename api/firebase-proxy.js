@@ -34,7 +34,9 @@ export default async function handler(req, res) {
       if (!adminSnap.val()) return res.status(403).json({ error: 'not authorized' });
     } else {
       const roleSnap = await db.ref('twitch-users/' + adminLogin.toLowerCase() + '/roles/admin').once('value');
-      if (!roleSnap.val()) return res.status(403).json({ error: 'not authorized' });
+      // Для config/commands/{login} разрешаем стримеру редактировать свои команды
+      const isOwnCommands = path.startsWith('config/commands/' + adminLogin.toLowerCase() + '/');
+      if (!roleSnap.val() && !isOwnCommands) return res.status(403).json({ error: 'not authorized' });
     }
 
     if (method === 'GET') {
