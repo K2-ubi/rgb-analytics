@@ -472,33 +472,58 @@ async function saveStreamerCmd(login, cmdName) {
     action: actionSelect.value,
   };
 
-  try {
-    const currentUser = localStorage.getItem('twitch_login') || 'unknown';
-    const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent('config/commands/' + login + '/' + name), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'HTTP ' + res.status); }
-    renderStreamerCommands(login);
-  } catch (e) {
-    alert('❌ Ошибка: ' + e.message);
+  const currentUser = localStorage.getItem('twitch_login');
+  if (!currentUser) { alert('❌ Не удалось определить текущего пользователя'); return; }
+
+  const path = 'config/commands/' + login + '/' + name;
+  const headers = { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser };
+  try { const at = await getAppCheckToken(); if (at) headers['X-Firebase-AppCheck'] = at; } catch {}
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path), {
+        method: 'PATCH', headers, body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let msg;
+        try { const j = JSON.parse(text); msg = j.error || text; } catch { msg = 'Сервер вернул ' + res.status; }
+        throw new Error(msg);
+      }
+      renderStreamerCommands(login);
+      return;
+    } catch (e) {
+      if (attempt === 1) alert('❌ Ошибка: ' + e.message);
+    }
   }
 }
 
 async function deleteStreamerCmd(login, cmdName) {
   if (!confirm('Удалить команду !' + cmdName + '?')) return;
-  try {
-    const currentUser = localStorage.getItem('twitch_login') || 'unknown';
-    const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent('config/commands/' + login + '/' + cmdName), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser },
-      body: JSON.stringify({ '.value': null }),
-    });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'HTTP ' + res.status); }
-    renderStreamerCommands(login);
-  } catch (e) {
-    alert('❌ Ошибка: ' + e.message);
+
+  const currentUser = localStorage.getItem('twitch_login');
+  if (!currentUser) { alert('❌ Не удалось определить пользователя'); return; }
+
+  const path = 'config/commands/' + login + '/' + cmdName;
+  const headers = { 'Content-Type': 'application/json', 'X-Admin-Login': currentUser };
+  try { const at = await getAppCheckToken(); if (at) headers['X-Firebase-AppCheck'] = at; } catch {}
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path), {
+        method: 'PATCH', headers, body: JSON.stringify({ '.value': null }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        let msg;
+        try { const j = JSON.parse(text); msg = j.error || text; } catch { msg = 'Сервер вернул ' + res.status; }
+        throw new Error(msg);
+      }
+      renderStreamerCommands(login);
+      return;
+    } catch (e) {
+      if (attempt === 1) alert('❌ Ошибка: ' + e.message);
+    }
   }
 }
 
