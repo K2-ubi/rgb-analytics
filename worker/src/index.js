@@ -117,7 +117,7 @@ function auth(env, _corsHeaders, bot = 1) {
     client_id: env.BOT_CLIENT_ID,
     redirect_uri: env.REDIRECT_URI,
     response_type: 'code',
-    scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions chat:read',
+    scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions chat:read chat:edit',
     state: 'bot=' + bot,
     force_verify: 'true',
   });
@@ -380,7 +380,7 @@ async function getBotTokenForLurker(url, env, corsHeaders) {
     const display = await env.KV.get('bot_display' + sfx);
     const id = await env.KV.get('bot_id' + sfx);
     await logToFirebase(env, 'worker', 'info', 'Lurker token requested bot=' + bot + ' login=' + (login || '?'));
-    return json({ token, login, display, id, bot }, 200, corsHeaders);
+    return json({ token, login, display, id, bot, client_id: env.BOT_CLIENT_ID }, 200, corsHeaders);
   } catch (e) {
     await logToFirebase(env, 'worker', 'error', 'Lurker token failed bot=' + bot + ': ' + e.message);
     return json({ error: e.message, bot }, 400, corsHeaders);

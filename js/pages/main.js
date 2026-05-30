@@ -300,12 +300,14 @@ async function openCreator(name) {
           <button class="tab-btn" id="tabTracker_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${name}', '${user?.id || ''}')">📊 Общие данные</button>
           <button class="tab-btn" id="tabAvg_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderAvgOnline('${name}', '${user?.id || ''}')">📈 Средний онлайн</button>
           <button class="tab-btn" id="tabCmds_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamerCommands('${name}')">⚙️ Команды</button>
+          ${isAdmin() || (currentTwitchUser && currentTwitchUser.login === name) ? `<button class="tab-btn" id="tabPoll_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderPollView('${name}')">📊 Опрос</button>` : ''}
         </div>
         <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
         <div id="streamCalendarContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="trackerContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="avgOnlineContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="cmdsContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+        ${isAdmin() || (currentTwitchUser && currentTwitchUser.login === name) ? `<div id="pollContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>` : ''}
       </main>
     </div>`;
   show('creatorPage');
@@ -368,6 +370,201 @@ function openCmdsInAdmin(login) {
     const select = document.getElementById('cmdStreamerSelect');
     if (select) { select.value = login; loadCmds(); }
   }, 500);
+}
+
+async function renderPollView(login) {
+  const safe = login.replace(/[^a-z0-9]/gi, '');
+  setActiveTab(login, 'poll');
+  viewerTracker.stop();
+  const ve = document.getElementById('viewerAnalysis');
+  if (ve) ve.style.display = 'none';
+  const cal = document.getElementById('streamCalendarContainer_' + safe);
+  if (cal) cal.style.display = 'none';
+  const tr = document.getElementById('trackerContainer_' + safe);
+  if (tr) tr.style.display = 'none';
+  const avgEl = document.getElementById('avgOnlineContainer_' + safe);
+  if (avgEl) avgEl.style.display = 'none';
+  const cmEl = document.getElementById('cmdsContainer_' + safe);
+  if (cmEl) cmEl.style.display = 'none';
+  const container = document.getElementById('pollContainer_' + safe);
+  if (!container) return;
+  container.style.display = 'block';
+
+  const token = localStorage.getItem('twitchAccessToken');
+  const isOwner = currentTwitchUser && currentTwitchUser.login === login;
+  const canManage = isAdmin() || isOwner;
+
+  let html = '<div class="page-card" style="margin-top:24px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
+  html += '<div><h2 style="font-size:24px">📊 Опросы канала (баллы канала)</h2><p class="muted">Голосование через встроенные опросы Twitch</p></div>';
+  if (canManage) {
+    html += '<button class="btn primary" onclick="showCreateTwitchPoll(\'' + login + '\')" style="padding:8px 16px;font-size:13px">➕ Создать опрос</button>';
+  }
+  html += '</div>';
+
+  if (!token) {
+    html += '<p class="muted" style="padding:20px;text-align:center">❌ Войди в Twitch чтобы видеть опросы</p>';
+  } else {
+    try {
+      // Сначала ищем broadcaster_id
+      const uRes = await fetch('https://api.twitch.tv/helix/users?login=' + login, { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } });
+      const uData = await uRes.json();
+      const broadcaster = uData.data?.[0];
+      if (!broadcaster) {
+        html += '<p class="muted" style="padding:20px;text-align:center">❌ Пользователь не найден</p>';
+      } else {
+        const pRes = await fetch('https://api.twitch.tv/helix/polls?broadcaster_id=' + broadcaster.id + '&first=20', { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } });
+        if (pRes.status === 401 || pRes.status === 403) {
+          html += '<p class="muted" style="padding:20px;text-align:center">❌ Нет прав. Нужен <b>токен с channel:read:polls</b>. Выйди и зайди снова.</p>';
+        } else if (pRes.ok) {
+          const pData = await pRes.json();
+          const polls = pData.data || [];
+          if (!polls.length) {
+            html += '<p class="muted" style="padding:20px;text-align:center">Нет опросов на канале</p>';
+          } else {
+            for (const poll of polls) {
+              html += renderTwitchPollCard(poll, login, canManage);
+            }
+          }
+        } else {
+          html += '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: HTTP ' + pRes.status + '</p>';
+        }
+      }
+    } catch (e) {
+      html += '<p class="muted" style="padding:20px;text-align:center">❌ ' + e.message + '</p>';
+    }
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderTwitchPollCard(poll, login, canManage) {
+  const statusColors = { ACTIVE: '#4ade80', COMPLETED: '#888', TERMINATED: '#ef4444' };
+  const statusLabels = { ACTIVE: 'Активен', COMPLETED: 'Завершён', TERMINATED: 'Остановлен' };
+  const sc = statusColors[poll.status] || '#888';
+  const sl = statusLabels[poll.status] || poll.status;
+  const isActive = poll.status === 'ACTIVE';
+
+  const started = new Date(poll.started_at).toLocaleString('ru-RU');
+  const ended = poll.ended_at ? new Date(poll.ended_at).toLocaleString('ru-RU') : null;
+
+  const choices = poll.choices || [];
+  let totalVotes = 0;
+  let totalPoints = 0;
+  for (const ch of choices) {
+    totalVotes += ch.votes || 0;
+    totalPoints += ch.channel_points_votes || 0;
+  }
+
+  let html = '<div style="margin-bottom:16px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
+  html += '<h3 style="margin:0">' + (poll.title || 'Опрос') + '</h3>';
+  html += '<span style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;color:' + sc + ';background:' + sc + '22;border:1px solid ' + sc + '44">' + sl + '</span></div>';
+  html += '<p class="muted" style="font-size:12px;margin-bottom:12px">Начат: ' + started + (ended ? ' &bull; Завершён: ' + ended : '') + ' &bull; ' + totalVotes + ' голосов, ' + totalPoints + ' баллов</p>';
+
+  if (choices.length) {
+    const maxPoints = Math.max(...choices.map(c => c.channel_points_votes || 0), 1);
+    for (const ch of choices) {
+    const votes = ch.votes || 0;
+    const points = ch.channel_points_votes || 0;
+    const pct = Math.round(points / maxPoints * 100);
+    html += '<div style="margin-bottom:8px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.03)">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:4px">';
+    html += '<b>' + (ch.title || '?') + '</b>';
+    html += '<span style="font-size:13px;color:var(--muted)">' + votes + ' голосов &bull; <b>' + points + '</b> баллов</span></div>';
+    html += '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">';
+    html += '<div style="height:100%;width:' + pct + '%;border-radius:3px;background:linear-gradient(90deg,#a855f7,#22d3ee)"></div></div>';
+    html += '</div>';
+    }
+  }
+
+  if (isActive && canManage) {
+    html += '<button class="btn" style="border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#fca5a5;margin-top:8px" onclick="endTwitchPoll(\'' + login + '\',\'' + poll.id + '\')">⏹ Завершить опрос</button>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function showCreateTwitchPoll(login) {
+  const container = document.getElementById('pollContainer_' + login.replace(/[^a-z0-9]/gi, ''));
+  if (!container) return;
+  container.innerHTML = `
+    <div class="page-card" style="margin-top:24px">
+      <button class="btn" onclick="renderPollView('${login}')" style="margin-bottom:16px">← Назад к опросам</button>
+      <h2>Создать опрос (Twitch Channel Points)</h2>
+      <p class="muted" style="margin-bottom:16px">Опрос будет создан на канале @${login}. Зрители смогут голосовать баллами канала.</p>
+      <div style="display:grid;gap:12px;max-width:500px">
+        <input type="text" id="twPollQuestion" placeholder="Вопрос опроса" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+        <div style="display:grid;gap:8px" id="twPollOptionsList">
+          <input type="text" class="twPollOption" placeholder="Вариант 1" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+          <input type="text" class="twPollOption" placeholder="Вариант 2" style="padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white">
+        </div>
+        <button class="btn" onclick="document.getElementById('twPollOptionsList').insertAdjacentHTML('beforeend','<input type=\\"text\\" class=\\"twPollOption\\" placeholder=\\"Вариант N\\" style=\\"padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);color:white\\">')">➕ Добавить вариант</button>
+        <div style="display:flex;gap:10px;align-items:center">
+          <label style="font-size:13px;color:var(--muted)">Длительность (сек):</label>
+          <input type="number" id="twPollDuration" value="60" min="15" max="1800" style="width:80px;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white">
+        </div>
+        <button class="btn primary" onclick="createTwitchPoll('${login}')">📊 Запустить опрос</button>
+        <div id="twPollCreateStatus" class="muted" style="font-size:13px"></div>
+      </div>
+    </div>`;
+}
+
+async function createTwitchPoll(login) {
+  const status = document.getElementById('twPollCreateStatus');
+  const token = localStorage.getItem('twitchAccessToken');
+  if (!token) { status.textContent = '❌ Войди в Twitch'; return; }
+
+  const question = document.getElementById('twPollQuestion')?.value.trim();
+  if (!question) { status.textContent = '❌ Введи вопрос'; return; }
+
+  const optionInputs = document.querySelectorAll('.twPollOption');
+  const choices = [];
+  for (const inp of optionInputs) {
+    const v = inp.value.trim();
+    if (v) choices.push({ title: v });
+  }
+  if (choices.length < 2) { status.textContent = '❌ Минимум 2 варианта'; return; }
+
+  const duration = parseInt(document.getElementById('twPollDuration')?.value || '60');
+
+  try {
+    const uRes = await fetch('https://api.twitch.tv/helix/users?login=' + login, { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } });
+    const uData = await uRes.json();
+    const broadcaster = uData.data?.[0];
+    if (!broadcaster) { status.textContent = '❌ Пользователь не найден'; return; }
+
+    const body = { broadcaster_id: broadcaster.id, title: question, choices, duration };
+    const res = await fetch('https://api.twitch.tv/helix/polls', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) { status.textContent = '❌ ' + (data.message || 'HTTP ' + res.status); return; }
+    status.textContent = '✅ Опрос запущен!';
+    setTimeout(() => renderPollView(login), 1500);
+  } catch (e) { status.textContent = '❌ ' + e.message; }
+}
+
+async function endTwitchPoll(login, pollId) {
+  if (!confirm('Завершить опрос на канале @' + login + '?')) return;
+  const token = localStorage.getItem('twitchAccessToken');
+  if (!token) { alert('❌ Войди в Twitch'); return; }
+  try {
+    const uRes = await fetch('https://api.twitch.tv/helix/users?login=' + login, { headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID } });
+    const uData = await uRes.json();
+    const broadcaster = uData.data?.[0];
+    if (!broadcaster) { alert('❌ Пользователь не найден'); return; }
+    const res = await fetch('https://api.twitch.tv/helix/polls', {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ broadcaster_id: broadcaster.id, id: pollId, status: 'TERMINATED' }),
+    });
+    if (!res.ok) { const d = await res.json(); alert('❌ ' + (d.message || 'HTTP ' + res.status)); return; }
+    alert('✅ Опрос завершён!');
+    renderPollView(login);
+  } catch (e) { alert('❌ ' + e.message); }
 }
 
 async function renderMyProfile() {

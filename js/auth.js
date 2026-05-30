@@ -142,7 +142,7 @@ function twitchLogin() {
     return;
   }
   const redirect = encodeURIComponent(window.location.href.split('#')[0]);
-  window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers+moderator:read:chatters+channel:read:subscriptions&force_verify=true';
+  window.location.href = 'https://id.twitch.tv/oauth2/authorize?client_id=' + TWITCH_CLIENT_ID + '&redirect_uri=' + redirect + '&response_type=token&scope=moderator:read:followers+moderator:read:chatters+channel:read:subscriptions+channel:manage:polls+channel:read:polls&force_verify=true';
 }
 
 function logout() {

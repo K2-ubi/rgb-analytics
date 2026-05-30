@@ -56,6 +56,16 @@ function renderAdminPanel() {
           <div id="bot2ConfigStatus" class="muted" style="font-size:13px"></div>
         </div>
       </div>
+      <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+        <p class="muted" style="margin-bottom:12px">👁 Луркер (IRC боты в чатах)</p>
+        <div style="display:grid;gap:12px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn" onclick="checkLurkerStatus()">🔄 Статус луркера</button>
+          </div>
+          <p class="muted" style="font-size:12px;line-height:1.5">Статус IRC-подключения ботов к каналам сквада. Боты отправляют "!" раз в 10 мин для имитации активности зрителя.</p>
+          <div id="lurkerStatus" class="muted" style="font-size:13px"></div>
+        </div>
+      </div>
       <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border);display:none" id="botTokenSection">
         <p class="muted" style="margin-bottom:12px">🔑 Токен напрямую (если без воркера)</p>
         <div style="display:grid;gap:12px">
@@ -674,10 +684,40 @@ async function fetchLogs() {
   }
 }
 
+async function checkLurkerStatus() {
+  const el = document.getElementById('lurkerStatus');
+  if (!el) return;
+  el.innerHTML = '⏳ Проверка...';
+  try {
+    // URL луркера — берём из конфига или стандартный
+    const LURKER_URL = 'https://botforrgbsquad.onrender.com';
+    const res = await fetch(LURKER_URL + '/health', { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const online1 = data.bots?.bot1 ? '✅' : '❌';
+    const online2 = data.bots?.bot2 ? '✅' : '❌';
+    const chans1 = data.channels?.bot1 || 0;
+    const chans2 = data.channels?.bot2 || 0;
+    const ps1 = data.pubsub?.bot1?.connected ? '🔔' : '🔕';
+    const ps2 = data.pubsub?.bot2?.connected ? '🔔' : '🔕';
+    const psT1 = data.pubsub?.bot1?.topics || 0;
+    const psT2 = data.pubsub?.bot2?.topics || 0;
+    const uptime = data.uptime ? Math.round(data.uptime / 60) + ' мин' : '—';
+    el.innerHTML = `<div style="display:grid;gap:6px;font-size:13px">
+      <div>Бот #1: ${online1} <b>${data.bots?.bot1 ? 'IRC подключён' : 'IRC отключён'}</b> — ${chans1} каналов ${ps1} PubSub ${psT1} топиков</div>
+      <div>Бот #2: ${online2} <b>${data.bots?.bot2 ? 'IRC подключён' : 'IRC отключён'}</b> — ${chans2} каналов ${ps2} PubSub ${psT2} топиков</div>
+      <div class="muted">Аптайм: ${uptime}</div>
+    </div>`;
+  } catch (e) {
+    el.innerHTML = '❌ Не удалось получить статус: ' + e.message;
+  }
+}
+
 // Patch renderAdminPanel to populate streamer select after render
 const _origRenderAdmin = renderAdminPanel;
 renderAdminPanel = function() {
   _origRenderAdmin();
   populateCmdStreamers();
   setTimeout(fetchLogs, 500);
+  setTimeout(checkLurkerStatus, 1000);
 };
