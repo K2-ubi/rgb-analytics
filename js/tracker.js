@@ -431,6 +431,7 @@ async function renderStreamCalendar(login, userId, monthKey) {
   hideAllTabs(login, 'streamCalendarContainer_' + safe);
   const container = document.getElementById('streamCalendarContainer_' + safe);
   if (!container) return;
+  container.style.display = 'block';
   container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Загрузка календаря стримов...</p>';
   container.scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
