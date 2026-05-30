@@ -354,6 +354,24 @@ async function renderStreamerCommands(login) {
     }
     html += '</div>';
 
+    // Статус авторизации Twitch (для смены категории)
+    try {
+      const tokenSnap = await db.ref('twitch-users/' + login + '/tokens/access_token').once('value');
+      const hasToken = !!tokenSnap.val();
+      if (hasToken) {
+        const expSnap = await db.ref('twitch-users/' + login + '/tokens/expires_at').once('value');
+        const exp = expSnap.val();
+        const expired = exp && Date.now() > exp;
+        if (expired) {
+          html += '<div style="margin-bottom:16px;padding:10px 14px;border-radius:12px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.15);font-size:13px">⚠️ Токен Twitch истёк. <button class="btn" onclick="authUserTwitch(\'' + login + '\')" style="padding:4px 12px;font-size:12px">🔑 Обновить</button></div>';
+        } else {
+          html += '<div style="margin-bottom:16px;padding:10px 14px;border-radius:12px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.15);font-size:13px">✅ Twitch авторизован — бот сможет менять категорию от вашего имени</div>';
+        }
+      } else if (currentUser === login) {
+        html += '<div style="margin-bottom:16px;padding:10px 14px;border-radius:12px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.15);font-size:13px">⚠️ Для смены категории чат-командами нужно авторизовать Twitch: <button class="btn" onclick="authUserTwitch(\'' + login + '\')" style="padding:4px 12px;font-size:12px">🔑 Авторизовать</button></div>';
+      }
+    } catch (e) {}
+
     if (entries.length) {
       html += '<div style="display:grid;gap:10px">';
       const permLabels = { 'все': '👥 все', 'випка': '⭐ Вип', 'редакторка': '📝 Ред', 'модерка': '🔨 Мод', 'стример': '👑 Стрим' };
@@ -1105,4 +1123,10 @@ function drawChart() {
   pts.forEach((pt, i) => i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1]));
   ctx.strokeStyle = '#a855f7'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
   ['Aug', 'Sep', 'Oct', 'Nov'].forEach((m, i) => { ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.font = '14px system-ui'; ctx.fillText(m, p + i * (w / 3), p + h + 24); });
+}
+
+async function authUserTwitch(login) {
+  const workerUrl = await getBotWorkerUrl();
+  if (!workerUrl) { alert('Сначала настройте URL воркера в админке'); return; }
+  window.open(workerUrl.replace(/\/$/, '') + '/api/auth/user?login=' + encodeURIComponent(login), '_blank');
 }

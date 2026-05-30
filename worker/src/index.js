@@ -29,7 +29,9 @@ export default {
     try {
       switch (url.pathname) {
         case '/api/auth': return auth(env, corsHeaders, bot);
-        case '/api/callback': return callback(url, env, corsHeaders, bot);
+        case '/api/auth/user': return authUser(url, env, corsHeaders);
+        case '/api/callback': return callback(url, env, corsHeaders);
+        case '/api/token/user': return requireSecret(env, request) ? getUserToken(url, env, corsHeaders) : json({ error: 'forbidden' }, 403, corsHeaders);
         case '/api/status': return status(env, corsHeaders, bot);
         case '/api/twitch/users': return proxyAsBot(url, env, '/users', corsHeaders);
         case '/api/twitch/streams': return proxyAsBot(url, env, '/streams', corsHeaders);
@@ -124,10 +126,56 @@ function auth(env, _corsHeaders, bot = 1) {
   return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
 }
 
+function authUser(url, env, corsHeaders) {
+  const login = url.searchParams.get('login');
+  if (!login) return json({ error: 'login param required' }, 400, corsHeaders);
+  const p = new URLSearchParams({
+    client_id: env.BOT_CLIENT_ID,
+    redirect_uri: env.REDIRECT_URI,
+    response_type: 'code',
+    scope: 'channel:manage:broadcast',
+    state: 'user:' + login,
+    force_verify: 'true',
+  });
+  return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
+}
+
 async function callback(url, env, _corsHeaders) {
   const code = url.searchParams.get('code');
   if (!code) return html('Ошибка: ' + (url.searchParams.get('error') || 'unknown'));
-  const bot = parseInt(url.searchParams.get('state')?.match(/bot=(\d)/)?.[1] || '1');
+
+  const state = url.searchParams.get('state') || '';
+
+  // User auth — store token in Firebase under the user
+  if (state.startsWith('user:')) {
+    const login = state.replace('user:', '');
+    const r = await fetch(TWITCH_TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: env.BOT_CLIENT_ID, client_secret: env.BOT_CLIENT_SECRET,
+        code, grant_type: 'authorization_code',
+        redirect_uri: env.REDIRECT_URI,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) return html('Ошибка: ' + (d.message || r.status));
+    const tokenData = {
+      access_token: d.access_token,
+      refresh_token: d.refresh_token,
+      expires_at: Date.now() + (d.expires_in || 14400) * 1000,
+      updated_at: Date.now(),
+      client_id: env.BOT_CLIENT_ID,
+    };
+    if (env.FIREBASE_DB_SECRET) {
+      await firebasePatch(env, 'twitch-users/' + login + '/tokens', tokenData);
+      await logToFirebase(env, 'worker', 'info', 'User ' + login + ' authorized');
+    }
+    return Response.redirect('https://rgb-analytics.vercel.app?auth=success&login=' + login, 302);
+  }
+
+  // Bot auth
+  const bot = parseInt(state.match(/bot=(\d)/)?.[1] || '1');
   const sfx = botSuffix(bot);
   const r = await fetch(TWITCH_TOKEN, {
     method: 'POST',
@@ -385,6 +433,50 @@ async function getBotTokenForLurker(url, env, corsHeaders) {
     await logToFirebase(env, 'worker', 'error', 'Lurker token failed bot=' + bot + ': ' + e.message);
     return json({ error: e.message, bot }, 400, corsHeaders);
   }
+}
+
+async function getUserToken(url, env, corsHeaders) {
+  const login = url.searchParams.get('login');
+  if (!login) return json({ error: 'login param required' }, 400, corsHeaders);
+  if (!env.FIREBASE_DB_SECRET) return json({ error: 'no firebase' }, 400, corsHeaders);
+
+  const tokens = await firebaseGet(env, 'twitch-users/' + login + '/tokens');
+  if (!tokens || !tokens.access_token) {
+    await logToFirebase(env, 'worker', 'warn', 'User token requested but none found: ' + login);
+    return json({ error: 'no token for ' + login }, 404, corsHeaders);
+  }
+
+  // Refresh if expired or about to expire (within 2 min)
+  if (tokens.expires_at && Date.now() > tokens.expires_at - 120000) {
+    if (tokens.refresh_token) {
+      const r = await fetch(TWITCH_TOKEN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'refresh_token',
+          refresh_token: tokens.refresh_token,
+          client_id: env.BOT_CLIENT_ID,
+          client_secret: env.BOT_CLIENT_SECRET,
+        }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        tokens.access_token = d.access_token;
+        tokens.refresh_token = d.refresh_token;
+        tokens.expires_at = Date.now() + (d.expires_in || 14400) * 1000;
+        tokens.updated_at = Date.now();
+        await firebasePatch(env, 'twitch-users/' + login + '/tokens', tokens);
+        await logToFirebase(env, 'worker', 'info', 'User token refreshed: ' + login);
+      } else {
+        await logToFirebase(env, 'worker', 'error', 'User token refresh failed: ' + login + ' — ' + (d.message || r.status));
+      }
+    }
+  }
+
+  if (tokens.access_token && tokens.client_id) {
+    return json({ token: tokens.access_token, client_id: tokens.client_id, login }, 200, corsHeaders);
+  }
+  return json({ error: 'no valid token' }, 400, corsHeaders);
 }
 
 async function trackerSummary(url, env, corsHeaders) {
