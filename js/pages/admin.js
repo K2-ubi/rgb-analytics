@@ -570,8 +570,12 @@ async function fetchLogs() {
   container.innerHTML = '<p style="color:var(--muted);padding:12px">⏳ Загрузка...</p>';
   try {
     const snap = await db.ref('config/logs').once('value');
-    const logs = snap.val();
-    if (!logs || !logs.length) { container.innerHTML = '<p style="color:var(--muted);padding:12px">Нет логов</p>'; return; }
+    const logsRaw = snap.val();
+    if (!logsRaw) { container.innerHTML = '<p style="color:var(--muted);padding:12px">Нет логов</p>'; return; }
+    // Может быть массивом (старый формат) или объектом с push-ключами (новый)
+    let logs = Array.isArray(logsRaw) ? logsRaw : Object.values(logsRaw);
+    logs = logs.filter(Boolean);
+    if (!logs.length) { container.innerHTML = '<p style="color:var(--muted);padding:12px">Нет логов</p>'; return; }
     const filtered = logs.reverse().filter(e => {
       if (sourceFilter && e.source !== sourceFilter) return false;
       if (levelFilter && e.level !== levelFilter) return false;
