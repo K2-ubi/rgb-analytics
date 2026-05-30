@@ -329,11 +329,13 @@ async function renderStreamerCommands(login) {
   const ve = document.getElementById('viewerAnalysis');
   if (ve) ve.style.display = 'none';
   const cal = document.getElementById('streamCalendarContainer_' + safe);
-  if (cal) cal.style.display = 'none';
+  if (cal) { cal.style.display = 'none'; cal.innerHTML = ''; }
   const tr = document.getElementById('trackerContainer_' + safe);
-  if (tr) tr.style.display = 'none';
+  if (tr) { tr.style.display = 'none'; tr.innerHTML = ''; }
   const avgEl = document.getElementById('avgOnlineContainer_' + safe);
-  if (avgEl) avgEl.style.display = 'none';
+  if (avgEl) { avgEl.style.display = 'none'; avgEl.innerHTML = ''; }
+  const poll = document.getElementById('pollContainer_' + safe);
+  if (poll) { poll.style.display = 'none'; poll.innerHTML = ''; }
   const container = document.getElementById('cmdsContainer_' + safe);
   if (!container) return;
   container.style.display = 'block';
@@ -573,13 +575,13 @@ async function renderPollView(login) {
   const ve = document.getElementById('viewerAnalysis');
   if (ve) ve.style.display = 'none';
   const cal = document.getElementById('streamCalendarContainer_' + safe);
-  if (cal) cal.style.display = 'none';
+  if (cal) { cal.style.display = 'none'; cal.innerHTML = ''; }
   const tr = document.getElementById('trackerContainer_' + safe);
-  if (tr) tr.style.display = 'none';
+  if (tr) { tr.style.display = 'none'; tr.innerHTML = ''; }
   const avgEl = document.getElementById('avgOnlineContainer_' + safe);
-  if (avgEl) avgEl.style.display = 'none';
+  if (avgEl) { avgEl.style.display = 'none'; avgEl.innerHTML = ''; }
   const cmEl = document.getElementById('cmdsContainer_' + safe);
-  if (cmEl) cmEl.style.display = 'none';
+  if (cmEl) { cmEl.style.display = 'none'; cmEl.innerHTML = ''; }
   const container = document.getElementById('pollContainer_' + safe);
   if (!container) return;
   container.style.display = 'block';

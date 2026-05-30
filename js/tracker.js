@@ -1,5 +1,20 @@
 const _streamVodCache = {};
 
+function hideAllTabs(login, except) {
+  const safe = login.replace(/[^a-z0-9]/gi, '');
+  const tabs = ['viewerAnalysis', 'streamCalendarContainer_', 'trackerContainer_', 'avgOnlineContainer_', 'cmdsContainer_', 'pollContainer_'];
+  for (const t of tabs) {
+    if (t === except || (except && t + safe === except)) continue;
+    if (t === 'viewerAnalysis') {
+      const el = document.getElementById(t);
+      if (el) el.style.display = 'none';
+    } else {
+      const el = document.getElementById(t + safe);
+      if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+    }
+  }
+}
+
 const viewerTracker = {
   viewers: {},
   history: {},
@@ -48,16 +63,34 @@ const viewerTracker = {
     let chattersRes;
     try {
       const now = Date.now();
-      if (botToken && botToken.id) {
+
+      // 1) Пробуем токен самого стримера (из Firebase) — он всегда видит свой чат
+      if (!chattersRes || !chattersRes.ok) {
+        try {
+          const snap = await db.ref('twitch-users/' + login + '/tokens/access_token').once('value');
+          const streamerToken = snap.val();
+          if (streamerToken) {
+            chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + id + '&first=100', {
+              headers: { 'Authorization': 'Bearer ' + streamerToken, 'Client-Id': TWITCH_CLIENT_ID }
+            });
+          }
+        } catch (e) {}
+      }
+
+      // 2) Пробуем токен бота (если бот модер)
+      if ((!chattersRes || !chattersRes.ok) && botToken && botToken.id) {
         chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + botToken.id + '&first=100', {
           headers: { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID }
         });
       }
+
+      // 3) Если текущий пользователь — сам стример, пробуем его токен из localStorage
       if ((!chattersRes || !chattersRes.ok) && modId === id) {
         chattersRes = await fetch('https://api.twitch.tv/helix/chat/chatters?broadcaster_id=' + id + '&moderator_id=' + id + '&first=100', {
           headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
         });
       }
+
       if (!chattersRes || !chattersRes.ok) return;
       const data = await chattersRes.json();
       const currentIds = new Set();
@@ -85,6 +118,21 @@ const viewerTracker = {
           this.viewers[vid].description = u.description || this.viewers[vid].description;
         }
       }
+
+      // Добавляем текущего пользователя сайта, если смотрит
+      if (modId && currentTwitchUser?.login) {
+        currentIds.add(modId);
+        if (!this.viewers[modId]) {
+          this.viewers[modId] = {
+            userId: modId, login: currentTwitchUser.login, displayName: currentTwitchUser.displayName || currentTwitchUser.login,
+            profileImageUrl: currentTwitchUser.profileImageUrl || '', createdAt: null, description: '',
+            firstSeen: now, lastSeen: now, totalSessions: 1,
+          };
+        } else {
+          this.viewers[modId].lastSeen = now;
+        }
+      }
+
       for (const vid in this.viewers) {
         if (!currentIds.has(vid)) {
           const v = this.viewers[vid];
@@ -269,15 +317,7 @@ const viewerTracker = {
 function renderViewerAnalysis(login, userId) {
   setActiveTab(login, 'viewer');
   viewerTracker.stop();
-  const calId = 'streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, '');
-  const cal = document.getElementById(calId);
-  if (cal) { cal.style.display = 'none'; cal.innerHTML = ''; }
-  const trId = 'trackerContainer_' + login.replace(/[^a-z0-9]/gi, '');
-  const tr = document.getElementById(trId);
-  if (tr) tr.style.display = 'none';
-  const avgId = 'avgOnlineContainer_' + login.replace(/[^a-z0-9]/gi, '');
-  const avgEl = document.getElementById(avgId);
-  if (avgEl) avgEl.style.display = 'none';
+  hideAllTabs(login, 'viewerAnalysis');
   const ve = document.getElementById('viewerAnalysis');
   if (ve) { ve.style.display = 'block'; ve.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   viewerTracker.start(userId, login);
@@ -288,12 +328,7 @@ async function renderAvgOnline(login, userId) {
   setActiveTab(login, 'avg');
   viewerTracker.stop();
   const safe = login.replace(/[^a-z0-9]/gi, '');
-  const ve = document.getElementById('viewerAnalysis');
-  if (ve) ve.style.display = 'none';
-  const cal = document.getElementById('streamCalendarContainer_' + safe);
-  if (cal) cal.style.display = 'none';
-  const tr = document.getElementById('trackerContainer_' + safe);
-  if (tr) tr.style.display = 'none';
+  hideAllTabs(login, 'avgOnlineContainer_' + safe);
   const container = document.getElementById('avgOnlineContainer_' + safe);
   if (!container) return;
   container.style.display = 'block';
@@ -393,14 +428,9 @@ async function renderStreamCalendar(login, userId, monthKey) {
   setActiveTab(login, 'calendar');
   viewerTracker.stop();
   const safe = login.replace(/[^a-z0-9]/gi, '');
+  hideAllTabs(login, 'streamCalendarContainer_' + safe);
   const container = document.getElementById('streamCalendarContainer_' + safe);
   if (!container) return;
-  document.getElementById('viewerAnalysis').style.display = 'none';
-  const tr = document.getElementById('trackerContainer_' + safe);
-  if (tr) tr.style.display = 'none';
-  const avgEl = document.getElementById('avgOnlineContainer_' + safe);
-  if (avgEl) avgEl.style.display = 'none';
-  container.style.display = 'block';
   container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📅 Загрузка календаря стримов...</p>';
   container.scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
@@ -542,7 +572,7 @@ async function renderStreamCalendar(login, userId, monthKey) {
       html += ' onmouseover="this.style.background=\'' + (hasActivity ? 'rgba(168,85,247,.15)' : 'rgba(255,255,255,.04)') + '\'" onmouseout="this.style.background=\'' + bg + '\'">';
       html += '<div style="font-size:13px;font-weight:' + (hasActivity ? '700' : '400') + ';color:' + (hasActivity ? 'white' : 'var(--muted)') + '">' + day + '</div>';
       if (hasActivity && cellDuration > 0) {
-        html += '<div style="font-size:9px;color:rgba(168,85,247,.6);margin-top:1px;line-height:1.2">' + (cellDuration >= 60 ? Math.floor(cellDuration / 60) + 'ч' : cellDuration + 'м') + '</div>';
+        html += '<div style="font-size:9px;color:rgba(168,85,247,.6);margin-top:1px;line-height:1.2">' + (cellDuration >= 60 ? Math.floor(cellDuration / 60) + 'ч ' + (cellDuration % 60) + 'м' : cellDuration + 'м') + '</div>';
         if (cellAvg > 0) html += '<div style="font-size:8px;color:rgba(255,255,255,.4);line-height:1.2">👁 ' + cellAvg + '</div>';
       } else if (hasActivity) {
         html += '<div style="width:5px;height:5px;border-radius:50%;background:#a855f7;margin:4px auto 0"></div>';
@@ -569,9 +599,8 @@ async function showStreamDay(login, userId, year, month, day) {
   if (!detailDiv) return;
   const safe = login.replace(/[^a-z0-9]/gi, '');
   const calContainer = document.getElementById('streamCalendarContainer_' + safe);
-  const calPageCard = calContainer?.querySelector('.page-card');
-  if (calPageCard) calPageCard.style.display = 'none';
   detailDiv.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📊 Загрузка данных...</p>';
+  detailDiv.dataset.login = login;
   detailDiv.dataset.day = String(day) + '-' + String(month) + '-' + String(year);
   detailDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
@@ -589,7 +618,7 @@ async function showStreamDay(login, userId, year, month, day) {
     const chunkTimestamps = Object.keys(chunkData).sort();
     const peakViewers = chunkTimestamps.length ? Math.max(1, ...chunkTimestamps.map(t => chunkData[t].viewers || 0)) : 0;
     const avgViewers = chunkTimestamps.length ? Math.round(chunkTimestamps.reduce((s, t) => s + (chunkData[t].viewers || 0), 0) / chunkTimestamps.length) : 0;
-    const realDurationMin = chunkTimestamps.reduce((s, t) => { const c = chunkData[t]; return c.durationMins ? Math.max(s, c.durationMins) : s + 15; }, 0);
+    const realDurationMin = chunkTimestamps.reduce((s, t) => s + (chunkData[t].durationMins || 15), 0);
     const durationMin = realDurationMin || chunkTimestamps.length * 15;
     const watchTimeMins = chunkTimestamps.reduce((s, t) => s + (chunkData[t].watchTimeMins || 0), 0);
     const followersGained = chunkTimestamps.reduce((s, t) => s + (chunkData[t].followersGained || 0), 0);
@@ -687,11 +716,15 @@ async function showStreamDay(login, userId, year, month, day) {
 function closeStreamDay() {
   const detailDiv = document.getElementById('streamDayDetail');
   if (!detailDiv) return;
+  const login = detailDiv.dataset.login || '';
   detailDiv.innerHTML = '';
   delete detailDiv.dataset.day;
-  document.querySelectorAll('[id^="streamCalendarContainer_"]').forEach(c => { const pc = c.querySelector('.page-card'); if (pc) pc.style.display = ''; });
-  const calContainer = document.querySelector('[id^="streamCalendarContainer_"]');
-  if (calContainer) calContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  delete detailDiv.dataset.login;
+  if (login) {
+    const safe = login.replace(/[^a-z0-9]/gi, '');
+    const calContainer = document.getElementById('streamCalendarContainer_' + safe);
+    if (calContainer) calContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 async function openViewerProfile(viewerId) {
@@ -815,13 +848,8 @@ async function openViewerProfile(viewerId) {
 function renderTrackerStats(login, userId) {
   setActiveTab(login, 'tracker');
   viewerTracker.stop();
-  const ve = document.getElementById('viewerAnalysis');
-  if (ve) ve.style.display = 'none';
-  const cal = document.getElementById('streamCalendarContainer_' + login.replace(/[^a-z0-9]/gi, ''));
-  if (cal) { cal.style.display = 'none'; }
-  const avgEl = document.getElementById('avgOnlineContainer_' + login.replace(/[^a-z0-9]/gi, ''));
-  if (avgEl) avgEl.style.display = 'none';
   const safe = login.replace(/[^a-z0-9]/gi, '');
+  hideAllTabs(login, 'trackerContainer_' + safe);
   const container = document.getElementById('trackerContainer_' + safe);
   if (!container) return;
   container.style.display = 'block';
