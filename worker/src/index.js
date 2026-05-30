@@ -117,7 +117,7 @@ function auth(env, _corsHeaders, bot = 1) {
     client_id: env.BOT_CLIENT_ID,
     redirect_uri: env.REDIRECT_URI,
     response_type: 'code',
-    scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions channel:read:redemptions channel:manage:broadcast chat:read chat:edit',
+    scope: 'moderator:read:chatters moderator:read:followers channel:read:subscriptions channel:read:redemptions channel:manage:broadcast channel:manage:moderators channel:manage:vips channel:manage:raids channel:manage:polls channel:manage:predictions channel:manage:schedule channel:manage:ads channel:manage:videos channel:manage:redemptions chat:read chat:edit',
     state: 'bot=' + bot,
     force_verify: 'true',
   });
