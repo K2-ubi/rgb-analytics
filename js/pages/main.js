@@ -547,13 +547,6 @@ async function deleteStreamerCmd(login, cmdName) {
     }
   }
 }
-      renderStreamerCommands(login);
-      return;
-    } catch (e) {
-      if (attempt === 1) alert('❌ Ошибка: ' + e.message);
-    }
-  }
-}
 
 async function renderPollView(login) {
   const safe = login.replace(/[^a-z0-9]/gi, '');
