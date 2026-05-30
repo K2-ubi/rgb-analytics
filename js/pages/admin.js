@@ -61,6 +61,7 @@ function renderAdminPanel() {
         <div style="display:grid;gap:12px">
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             <button class="btn" onclick="checkLurkerStatus()">🔄 Статус луркера</button>
+            <button class="btn primary" onclick="testBotModeration()">🧪 Тест модерки</button>
           </div>
           <p class="muted" style="font-size:12px;line-height:1.5">Статус IRC-подключения ботов к каналам сквада и PubSub WebSocket для баллов канала.</p>
           <div id="lurkerStatus" class="muted" style="font-size:13px"></div>
@@ -607,7 +608,6 @@ async function checkLurkerStatus() {
   if (!el) return;
   el.innerHTML = '⏳ Проверка...';
   try {
-    // URL луркера — берём из конфига или стандартный
     const LURKER_URL = 'https://botforrgbsquad.onrender.com';
     const res = await fetch(LURKER_URL + '/health', { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -628,6 +628,34 @@ async function checkLurkerStatus() {
     </div>`;
   } catch (e) {
     el.innerHTML = '❌ Не удалось получить статус: ' + e.message;
+  }
+}
+
+async function testBotModeration() {
+  const el = document.getElementById('lurkerStatus');
+  if (!el) return;
+  el.innerHTML = '⏳ Тестируем модерку (nezerars)...';
+  try {
+    const LURKER_URL = 'https://botforrgbsquad.onrender.com';
+    const res = await fetch(LURKER_URL + '/api/test-mod?login=nezerars', { signal: AbortSignal.timeout(15000) });
+    const data = await res.json();
+    let html = '<div style="display:grid;gap:4px;font-size:12px;font-family:monospace;background:rgba(0,0,0,.3);border-radius:10px;padding:10px;max-height:400px;overflow-y:auto">';
+    if (data.steps) {
+      for (const step of data.steps) {
+        const color = step.startsWith('✅') ? '#4ade80' : step.startsWith('⚠️') ? '#f59e0b' : step.startsWith('❌') ? '#ef4444' : '#888';
+        html += '<div style="color:' + color + ';padding:2px 0">' + step + '</div>';
+      }
+    }
+    if (data.scopes) {
+      html += '<div style="color:#60a5fa;padding:4px 0;border-top:1px solid rgba(255,255,255,.1);margin-top:4px">🔑 Скоупы: ' + data.scopes.join(', ') + '</div>';
+    }
+    if (data.currentCategory) {
+      html += '<div style="color:#888;padding:2px 0">📺 Было: ' + data.currentCategory.name + ' (id=' + data.currentCategory.id + ')</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '❌ Ошибка: ' + e.message;
   }
 }
 
