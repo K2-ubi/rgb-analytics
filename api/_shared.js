@@ -17,7 +17,7 @@ export function getAdminApp() {
   const serviceAccount = JSON.parse(Buffer.from(sa, 'base64').toString('utf-8'));
   _app = initializeApp({
     credential: cert(serviceAccount),
-    databaseURL: serviceAccount.databaseURL || `https://${serviceAccount.project_id}-default-rtdb.firebaseio.com`,
+    databaseURL: 'https://rgbsquad-892a2-default-rtdb.europe-west1.firebasedatabase.app',
   });
   return _app;
 }

@@ -480,24 +480,33 @@ async function saveStreamerCmd(login, cmdName) {
   if (!currentUser) { alert('❌ Не удалось определить текущего пользователя'); return; }
 
   const path = 'config/commands/' + login + '/' + name;
-  const headers = { 'Content-Type': 'application/json' };
-  try { const at = await getAppCheckToken(); if (at) headers['X-Firebase-AppCheck'] = at; } catch {}
+  const body = JSON.stringify(data);
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const urls = [
+    '/api/firebase-proxy?path=' + encodeURIComponent(path) + '&adminLogin=' + encodeURIComponent(currentUser),
+    'https://botforrgbsquad.onrender.com/api/commands',
+  ];
+
+  for (const url of urls) {
     try {
-      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path) + '&adminLogin=' + encodeURIComponent(currentUser), {
-        method: 'PATCH', headers, body: JSON.stringify(data),
+      const isRender = url.startsWith('http');
+      const res = await fetch(url, {
+        method: isRender ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: isRender ? JSON.stringify({ path, data, adminLogin: currentUser, method: 'PUT' }) : body,
+        signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) {
         const text = await res.text();
         let msg;
         try { const j = JSON.parse(text); msg = j.error || text; } catch { msg = 'Сервер вернул ' + res.status; }
-        throw new Error(msg);
+        if (url === urls[urls.length - 1]) throw new Error(msg);
+        continue;
       }
       renderStreamerCommands(login);
       return;
     } catch (e) {
-      if (attempt === 1) alert('❌ Ошибка: ' + e.message);
+      if (url === urls[urls.length - 1]) alert('❌ Ошибка: ' + e.message);
     }
   }
 }
@@ -509,20 +518,35 @@ async function deleteStreamerCmd(login, cmdName) {
   if (!currentUser) { alert('❌ Не удалось определить пользователя'); return; }
 
   const path = 'config/commands/' + login + '/' + cmdName;
-  const headers = { 'Content-Type': 'application/json' };
-  try { const at = await getAppCheckToken(); if (at) headers['X-Firebase-AppCheck'] = at; } catch {}
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const urls = [
+    '/api/firebase-proxy?path=' + encodeURIComponent(path) + '&adminLogin=' + encodeURIComponent(currentUser),
+    'https://botforrgbsquad.onrender.com/api/commands',
+  ];
+
+  for (const url of urls) {
     try {
-      const res = await fetch('/api/firebase-proxy?path=' + encodeURIComponent(path) + '&adminLogin=' + encodeURIComponent(currentUser), {
-        method: 'PATCH', headers, body: JSON.stringify({ '.value': null }),
+      const isRender = url.startsWith('http');
+      const res = await fetch(url, {
+        method: isRender ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: isRender ? JSON.stringify({ path, adminLogin: currentUser, method: 'DELETE' }) : JSON.stringify({ '.value': null }),
+        signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) {
         const text = await res.text();
         let msg;
         try { const j = JSON.parse(text); msg = j.error || text; } catch { msg = 'Сервер вернул ' + res.status; }
-        throw new Error(msg);
+        if (url === urls[urls.length - 1]) throw new Error(msg);
+        continue;
       }
+      renderStreamerCommands(login);
+      return;
+    } catch (e) {
+      if (url === urls[urls.length - 1]) alert('❌ Ошибка: ' + e.message);
+    }
+  }
+}
       renderStreamerCommands(login);
       return;
     } catch (e) {
