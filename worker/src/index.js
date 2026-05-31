@@ -45,6 +45,9 @@ export default {
         case '/api/logs': return requireSecret(env, request) ? getLogs(env, corsHeaders) : json({ error: 'forbidden' }, 403, corsHeaders);
         case '/api/tracker-summary': return trackerSummary(url, env, corsHeaders);
         case '/api/twitch/follows': return twitchFollows(url, env, corsHeaders);
+        case '/api/auth/plugin': return pluginAuth(url, env, corsHeaders);
+        case '/api/plugin/user': return pluginUser(url, env, corsHeaders);
+        case '/api/plugin/refresh': return pluginRefresh(url, env, corsHeaders);
         default: return json({ error: 'not found' }, 404, corsHeaders);
       }
     } catch (e) {
@@ -134,12 +137,14 @@ function auth(env, _corsHeaders, bot = 1) {
 function authUser(url, env, corsHeaders) {
   const login = url.searchParams.get('login');
   if (!login) return json({ error: 'login param required' }, 400, corsHeaders);
+  const redirect = url.searchParams.get('redirect');
+  const state = redirect ? 'plugin::' + login + '::' + redirect : 'user::' + login;
   const p = new URLSearchParams({
     client_id: env.BOT_CLIENT_ID,
     redirect_uri: env.REDIRECT_URI,
     response_type: 'code',
-    scope: 'channel:manage:broadcast channel:read:subscriptions channel:read:redemptions channel:read:polls channel:read:predictions channel:read:goals moderator:read:followers moderator:read:chatters bits:read',
-    state: 'user:' + login,
+    scope: 'chat:read chat:edit whispers:read whispers:edit channel:manage:broadcast channel:manage:moderators moderation:read channel:read:redemptions channel:manage:redemptions analytics:read:games analytics:read:extensions channel:read:subscriptions channel:read:hype_train channel:read:polls channel:read:predictions channel:read:goals moderator:read:followers moderator:read:chatters bits:read',
+    state: state,
     force_verify: 'true',
   });
   return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
@@ -151,9 +156,9 @@ async function callback(url, env, _corsHeaders) {
 
   const state = url.searchParams.get('state') || '';
 
-  // User auth — store token in Firebase under the user
-  if (state.startsWith('user:')) {
-    const login = state.replace('user:', '');
+  // User/plugin auth — store token in Firebase under the user
+  if (state.startsWith('user::')) {
+    const login = state.slice('user::'.length);
     const r = await fetch(TWITCH_TOKEN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -177,6 +182,40 @@ async function callback(url, env, _corsHeaders) {
       await logToFirebase(env, 'worker', 'info', 'User ' + login + ' authorized');
     }
     return Response.redirect('https://rgb-analytics.vercel.app?auth=success&login=' + login, 302);
+  }
+  if (state.startsWith('plugin::')) {
+    const rest = state.slice('plugin::'.length);
+    const sepIdx = rest.indexOf('::');
+    const login = rest.slice(0, sepIdx);
+    const redirectUrl = rest.slice(sepIdx + 2);
+    const r = await fetch(TWITCH_TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: env.BOT_CLIENT_ID, client_secret: env.BOT_CLIENT_SECRET,
+        code, grant_type: 'authorization_code',
+        redirect_uri: env.REDIRECT_URI,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) return html('Ошибка: ' + (d.message || r.status));
+    const tokenData = {
+      access_token: d.access_token,
+      refresh_token: d.refresh_token,
+      expires_at: Date.now() + (d.expires_in || 14400) * 1000,
+      updated_at: Date.now(),
+      client_id: env.BOT_CLIENT_ID,
+    };
+    if (env.FIREBASE_DB_SECRET) {
+      await firebasePatch(env, 'twitch-users/' + login + '/tokens', tokenData);
+      await logToFirebase(env, 'worker', 'info', 'Plugin auth for ' + login);
+    }
+    const dest = new URL(redirectUrl);
+    dest.searchParams.set('login', login);
+    dest.searchParams.set('access_token', tokenData.access_token);
+    dest.searchParams.set('refresh_token', tokenData.refresh_token);
+    dest.searchParams.set('expires_at', String(tokenData.expires_at));
+    return Response.redirect(dest.toString(), 302);
   }
 
   // Bot auth
@@ -249,6 +288,55 @@ async function twitchFollows(url, env, corsHeaders) {
     }
   }
   return json({ follows, categories, total: data.total }, 200, corsHeaders);
+}
+
+async function pluginAuth(url, env, corsHeaders) {
+  const login = url.searchParams.get('login');
+  const port = url.searchParams.get('port') || '56789';
+  if (!login) return json({ error: 'login param required' }, 400, corsHeaders);
+  const users = await firebaseGet(env, 'twitch-users');
+  const u = users?.[login];
+  const roles = u?.roles || {};
+  if (!roles.squad && !roles.academy && !u?.admin) {
+    return html('<h2>⛔ Доступ запрещён</h2><p>Пользователь @' + login + ' не является стримером сквада/академии или админом.</p><p style="margin-top:12px">Авторизуйся на <a href="https://rgb-analytics.vercel.app">сайте</a> и попробуй снова.</p>');
+  }
+  const redirectUrl = 'http://localhost:' + port + '/callback';
+  const p = new URLSearchParams({
+    client_id: env.BOT_CLIENT_ID,
+    redirect_uri: env.REDIRECT_URI,
+    response_type: 'code',
+    scope: 'chat:read chat:edit whispers:read whispers:edit channel:manage:broadcast channel:manage:moderators moderation:read channel:read:redemptions channel:manage:redemptions analytics:read:games analytics:read:extensions channel:read:subscriptions channel:read:hype_train channel:read:polls channel:read:predictions channel:read:goals moderator:read:followers moderator:read:chatters bits:read',
+    state: 'plugin::' + login + '::' + redirectUrl,
+    force_verify: 'true',
+  });
+  return Response.redirect('https://id.twitch.tv/oauth2/authorize?' + p, 302);
+}
+
+async function pluginUser(url, env, corsHeaders) {
+  const login = url.searchParams.get('login');
+  if (!login) return json({ error: 'login param required' }, 400, corsHeaders);
+  const users = await firebaseGet(env, 'twitch-users');
+  const u = users?.[login];
+  if (!u) return json({ error: 'user not found', login }, 404, corsHeaders);
+  const hasTokens = !!(u.tokens?.access_token);
+  return json({ login, roles: u.roles || {}, hasTokens, admin: !!u.admin }, 200, corsHeaders);
+}
+
+async function pluginRefresh(url, env, corsHeaders) {
+  const refreshToken = url.searchParams.get('refresh_token');
+  if (!refreshToken) return json({ error: 'missing refresh_token' }, 400, corsHeaders);
+  const r = await fetch(TWITCH_TOKEN, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: env.BOT_CLIENT_ID,
+      client_secret: env.BOT_CLIENT_SECRET,
+    }),
+  });
+  const d = await r.json();
+  return json(d, r.status, corsHeaders);
 }
 
 async function status(env, corsHeaders, bot = 1) {
