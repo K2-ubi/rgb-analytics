@@ -300,6 +300,7 @@ async function openCreator(name) {
           <button class="tab-btn" id="tabTracker_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${name}', '${user?.id || ''}')">📊 Общие данные</button>
           <button class="tab-btn" id="tabAvg_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderAvgOnline('${name}', '${user?.id || ''}')">📈 Средний онлайн</button>
           <button class="tab-btn" id="tabCmds_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamerCommands('${name}')">⚙️ Команды</button>
+          <button class="tab-btn" id="tabWatching_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamerWatching('${name}', '${user?.id || ''}')">📺 Что смотрят</button>
           ${isAdmin() || (currentTwitchUser && currentTwitchUser.login === name) ? `<button class="tab-btn" id="tabPoll_${name.replace(/[^a-z0-9]/gi, '')}" onclick="renderPollView('${name}')">📊 Опрос</button>` : ''}
         </div>
         <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
@@ -307,6 +308,7 @@ async function openCreator(name) {
         <div id="trackerContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="avgOnlineContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="cmdsContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+        <div id="streamWatchingContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         ${isAdmin() || (currentTwitchUser && currentTwitchUser.login === name) ? `<div id="pollContainer_${name.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>` : ''}
       </main>
     </div>`;
@@ -875,12 +877,14 @@ async function renderMyProfile() {
           <button class="tab-btn" id="tabTracker_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderTrackerStats('${user.login}', '${user.id}')">📊 Общие данные</button>
           <button class="tab-btn" id="tabAvg_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderAvgOnline('${user.login}', '${user.id}')">📈 Средний онлайн</button>
           <button class="tab-btn" id="tabCmds_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamerCommands('${user.login}')">⚙️ Команды</button>
+          <button class="tab-btn" id="tabWatching_${user.login.replace(/[^a-z0-9]/gi, '')}" onclick="renderStreamerWatching('${user.login}', '${user.id}')">📺 Что смотрят</button>
         </div>
         <div id="viewerAnalysis" style="padding:0 30px 30px"></div>
         <div id="streamCalendarContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="trackerContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="avgOnlineContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
         <div id="cmdsContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
+        <div id="streamWatchingContainer_${user.login.replace(/[^a-z0-9]/gi, '')}" style="padding:0 30px 30px;display:none"></div>
       </main>
     </div>`;
   show('creatorPage');

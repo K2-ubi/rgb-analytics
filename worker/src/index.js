@@ -44,6 +44,7 @@ export default {
         case '/api/reset': return resetBot(url, env, corsHeaders);
         case '/api/logs': return requireSecret(env, request) ? getLogs(env, corsHeaders) : json({ error: 'forbidden' }, 403, corsHeaders);
         case '/api/tracker-summary': return trackerSummary(url, env, corsHeaders);
+        case '/api/twitch/follows': return twitchFollows(url, env, corsHeaders);
         default: return json({ error: 'not found' }, 404, corsHeaders);
       }
     } catch (e) {
@@ -62,6 +63,10 @@ export default {
       await logToFirebase(env, 'worker', 'info', 'Bot #2 token refreshed');
     } catch (e) {
       await logToFirebase(env, 'worker', 'error', 'Bot #2 token refresh failed: ' + e.message);
+    }
+    // Автообновление токенов стримеров
+    try { await refreshAllUserTokens(env); } catch (e) {
+      await logToFirebase(env, 'worker', 'error', 'User token refresh batch failed: ' + e.message);
     }
     let results = [];
     try { results = (await monitorStreams(env)) || []; } catch (e) { await logToFirebase(env, 'worker', 'error', 'monitorStreams failed: ' + e.message); }
@@ -133,7 +138,7 @@ function authUser(url, env, corsHeaders) {
     client_id: env.BOT_CLIENT_ID,
     redirect_uri: env.REDIRECT_URI,
     response_type: 'code',
-    scope: 'channel:manage:broadcast',
+    scope: 'channel:manage:broadcast channel:read:subscriptions channel:read:redemptions channel:read:polls channel:read:predictions channel:read:goals moderator:read:followers moderator:read:chatters bits:read',
     state: 'user:' + login,
     force_verify: 'true',
   });
@@ -217,6 +222,33 @@ async function proxyAsBot(url, env, path, corsHeaders) {
     status: r.status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+async function twitchFollows(url, env, corsHeaders) {
+  const viewerId = url.searchParams.get('viewerId');
+  if (!viewerId) return json({ error: 'missing viewerId' }, 400, corsHeaders);
+  const token = await getToken(env);
+  const r = await fetch(TWITCH_API + '/users/follows?from_id=' + viewerId + '&first=100', {
+    headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.BOT_CLIENT_ID },
+  });
+  const data = await r.json();
+  const follows = data.data || [];
+  const categories = {};
+  if (follows.length > 0) {
+    const ids = follows.map(f => f.broadcaster_id);
+    for (let i = 0; i < ids.length; i += 100) {
+      const batch = ids.slice(i, i + 100);
+      const q = batch.map(id => 'broadcaster_id=' + id).join('&');
+      const cr = await fetch(TWITCH_API + '/channels?' + q, {
+        headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.BOT_CLIENT_ID },
+      });
+      const cd = await cr.json();
+      for (const c of cd.data || []) {
+        categories[c.broadcaster_id] = c.game_name || 'Unknown';
+      }
+    }
+  }
+  return json({ follows, categories, total: data.total }, 200, corsHeaders);
 }
 
 async function status(env, corsHeaders, bot = 1) {
@@ -477,6 +509,46 @@ async function getUserToken(url, env, corsHeaders) {
     return json({ token: tokens.access_token, client_id: tokens.client_id, login }, 200, corsHeaders);
   }
   return json({ error: 'no valid token' }, 400, corsHeaders);
+}
+
+async function refreshAllUserTokens(env) {
+  if (!env.FIREBASE_DB_SECRET) return;
+  const users = await firebaseGet(env, 'twitch-users');
+  if (!users) return;
+  const now = Date.now();
+  let refreshed = 0, errors = 0;
+  for (const [login, u] of Object.entries(users)) {
+    const tokens = u?.tokens;
+    if (!tokens?.access_token || !tokens?.refresh_token) continue;
+    if (tokens.expires_at && now < tokens.expires_at - 300000) continue; // с запасом 5 мин
+    try {
+      const r = await fetch(TWITCH_TOKEN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'refresh_token', refresh_token: tokens.refresh_token,
+          client_id: env.BOT_CLIENT_ID, client_secret: env.BOT_CLIENT_SECRET,
+        }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        tokens.access_token = d.access_token;
+        tokens.refresh_token = d.refresh_token;
+        tokens.expires_at = now + (d.expires_in || 14400) * 1000;
+        tokens.updated_at = now;
+        await firebasePatch(env, 'twitch-users/' + login + '/tokens', tokens);
+        refreshed++;
+      } else {
+        await logToFirebase(env, 'worker', 'error', 'Auto-refresh user token failed: ' + login + ' — ' + (d.message || r.status));
+        errors++;
+      }
+    } catch (e) {
+      errors++;
+    }
+  }
+  if (refreshed || errors) {
+    await logToFirebase(env, 'worker', 'info', 'User token auto-refresh: ' + refreshed + ' ok, ' + errors + ' errors');
+  }
 }
 
 async function trackerSummary(url, env, corsHeaders) {

@@ -2,7 +2,7 @@ const _streamVodCache = {};
 
 function hideAllTabs(login, except) {
   const safe = login.replace(/[^a-z0-9]/gi, '');
-  const tabs = ['viewerAnalysis', 'streamCalendarContainer_', 'trackerContainer_', 'avgOnlineContainer_', 'cmdsContainer_', 'pollContainer_'];
+  const tabs = ['viewerAnalysis', 'streamCalendarContainer_', 'trackerContainer_', 'avgOnlineContainer_', 'cmdsContainer_', 'pollContainer_', 'streamWatchingContainer_'];
   for (const t of tabs) {
     if (t === except || (except && t + safe === except)) continue;
     if (t === 'viewerAnalysis') {
@@ -961,4 +961,321 @@ function renderTrackerStats(login, userId) {
     html += '<p class="muted" style="font-size:12px">Данные обновлены: ' + msk().full + '</p></div>';
     container.innerHTML = html;
   }).catch(e => { container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>'; });
+}
+
+async function renderStreamerWatching(login, userId) {
+  setActiveTab(login, 'watching');
+  viewerTracker.stop();
+  const safe = login.replace(/[^a-z0-9]/gi, '');
+  hideAllTabs(login, 'streamWatchingContainer_' + safe);
+  const container = document.getElementById('streamWatchingContainer_' + safe);
+  if (!container) return;
+  container.style.display = 'block';
+  container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">📺 Загрузка...</p>';
+  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const myViewerSnap = await db.ref('viewer-history/' + login).once('value');
+    const myViewers = myViewerSnap.val() || {};
+    const myViewerIds = new Set(Object.keys(myViewers));
+    const totalViewers = myViewerIds.size;
+
+    let html = '<div class="page-card" style="margin-top:24px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
+    html += '<div><h2 style="font-size:24px">📺 Что смотрят зрители @' + login + '</h2><p class="muted">' + totalViewers + ' зрителей в истории · поиск пересечений...</p></div>';
+    html += '<button class="btn" onclick="renderStreamerWatching(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄</button></div>';
+
+    if (totalViewers === 0) {
+      html += '<p class="muted" style="text-align:center;padding:40px">Нет данных о зрителях. Данные собираются через вкладку «Анализ зрителей».</p></div>';
+      container.innerHTML = html;
+      return;
+    }
+
+    container.innerHTML = html + '<p class="muted" style="text-align:center;padding:20px">⏳ Сканирую все каналы в поисках пересечений...</p>';
+
+    // Сканируем ВСЕ каналы в viewer-history
+    const allHistorySnap = await db.ref('viewer-history').once('value');
+    const allHistory = allHistorySnap.val() || {};
+    const channelEntries = Object.entries(allHistory);
+
+    const overlaps = [];
+    const allOverlapViewers = new Set();
+
+    for (const [ch, chViewers] of channelEntries) {
+      if (ch === login) continue;
+      const chKeys = Object.keys(chViewers || {});
+      const common = chKeys.filter(vid => myViewerIds.has(vid));
+      if (common.length > 0) {
+        overlaps.push({ login: ch, count: common.length, pct: Math.round(common.length / totalViewers * 100) });
+        common.forEach(vid => allOverlapViewers.add(vid));
+      }
+    }
+    overlaps.sort((a, b) => b.count - a.count);
+
+    // Категории из стримов пересекающихся каналов (топ-15)
+    const catTotals = {};
+    const topOverlaps = overlaps.slice(0, 15);
+    for (const o of topOverlaps) {
+      try {
+        const chSnap = await db.ref('stream-chunks/' + o.login).once('value');
+        const chVal = chSnap.val() || {};
+        for (const ds of Object.keys(chVal)) {
+          for (const ts of Object.keys(chVal[ds])) {
+            const c = chVal[ds][ts];
+            const game = c.game || 'Unknown';
+            if (!catTotals[game]) catTotals[game] = { mins: 0, channels: new Set() };
+            catTotals[game].mins += c.durationMins || 15;
+            catTotals[game].channels.add(o.login);
+          }
+        }
+      } catch (e) {}
+    }
+
+    const catEntries = Object.entries(catTotals).sort((a, b) => b[1].mins - a[1].mins);
+    const maxCatMins = catEntries.length ? catEntries[0][1].mins : 1;
+
+    // Сами игры стримера (для пометки)
+    const myGameSnap = await db.ref('stream-chunks/' + login).once('value');
+    const myGameVal = myGameSnap.val() || {};
+    const myGames = new Set();
+    for (const ds of Object.keys(myGameVal)) {
+      for (const ts of Object.keys(myGameVal[ds])) {
+        const g = myGameVal[ds][ts].game;
+        if (g) myGames.add(g);
+      }
+    }
+
+    html = '<div class="page-card" style="margin-top:24px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">';
+    html += '<div><h2 style="font-size:24px">📺 Что смотрят зрители @' + login + '</h2><p class="muted">' + totalViewers + ' зрителей · пересечения в ' + overlaps.length + ' каналах</p></div>';
+    html += '<button class="btn" onclick="renderStreamerWatching(\'' + login + '\', \'' + userId + '\')" style="padding:8px 14px;font-size:13px">🔄</button></div>';
+
+    // --- Каналы, которые смотрят зрители ---
+    if (overlaps.length) {
+      html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border);margin-bottom:16px">';
+      html += '<p style="font-size:14px;font-weight:600;margin-bottom:12px">🎭 Зрители @' + login + ' также смотрят эти каналы</p>';
+      html += '<div style="display:grid;gap:8px">';
+      for (const o of overlaps.slice(0, 20)) {
+        const barW = Math.round(o.pct);
+        html += '<div style="padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--border);display:flex;align-items:center;gap:12px">';
+        html += '<b style="font-size:14px;min-width:120px">@' + o.login + '</b>';
+        html += '<div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:' + barW + '%;border-radius:3px;background:linear-gradient(90deg,#a855f7,#7c3aed)"></div></div>';
+        html += '<span style="font-size:13px;color:#a855f7;min-width:50px;text-align:right">' + o.count + '</span>';
+        html += '<span style="font-size:11px;color:var(--muted);min-width:40px;text-align:right">' + o.pct + '%</span></div>';
+      }
+      html += '</div></div>';
+    } else {
+      html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border);margin-bottom:16px;text-align:center">';
+      html += '<p class="muted">Нет данных о пересечении зрителей с другими каналами</p></div>';
+    }
+
+    // --- Категории ---
+    if (catEntries.length) {
+      html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border);margin-bottom:16px">';
+      html += '<p style="font-size:14px;font-weight:600;margin-bottom:12px">🎮 Категории, которые смотрят зрители @' + login + '</p>';
+      html += '<div style="display:grid;gap:8px">';
+      for (const [game, s] of catEntries.slice(0, 15)) {
+        const barW = Math.round(s.mins / maxCatMins * 100);
+        const byStreamer = myGames.has(game);
+        html += '<div style="padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--border)">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+        html += '<span style="font-weight:600;font-size:14px">🎮 ' + game + (byStreamer ? ' <span style="font-size:10px;color:#4ade80">(сам играет)</span>' : '') + '</span>';
+        html += '<span style="font-size:12px;color:var(--muted)">' + Math.floor(s.mins / 60) + 'ч · ' + s.channels.size + ' каналов</span></div>';
+        html += '<div style="height:4px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:' + barW + '%;border-radius:2px;background:linear-gradient(90deg,#7c3aed,#a855f7)"></div></div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // --- Twitch follows (загрузка из Twitch API для топ-зрителей) ---
+    html += '<div id="twitchFollowsSection" style="display:none"></div>';
+
+    // --- Поиск конкретного зрителя ---
+    html += '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)">';
+    html += '<p style="font-size:14px;font-weight:600;margin-bottom:8px">👤 Интересы конкретного зрителя</p>';
+    html += '<p class="muted" style="font-size:13px;margin-bottom:12px">Найди зрителя по логину — покажет какие каналы и категории он смотрит</p>';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    html += '<input type="text" id="viewerWatchSearch" placeholder="Введи логин зрителя" style="flex:1;min-width:160px;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:white">';
+    html += '<button class="btn primary" onclick="showViewerWatching(\'' + login + '\')" style="padding:8px 16px">🔍 Показать</button></div>';
+    html += '<div id="viewerWatchingResult" style="margin-top:12px"></div></div>';
+
+    html += '</div>';
+    container.innerHTML = html;
+
+    // Асинхронная загрузка Twitch follows для топ-зрителей
+    fetchTwitchFollows(login, myViewerIds, container);
+  } catch (e) {
+    container.innerHTML = '<p class="muted" style="padding:20px;text-align:center">❌ Ошибка: ' + e.message + '</p>';
+  }
+}
+
+async function fetchTwitchFollows(login, myViewerIds, container) {
+  try {
+    const workerUrl = typeof getBotWorkerUrl === 'function' ? await getBotWorkerUrl() : null;
+    if (!workerUrl) return;
+    // Берём топ-20 зрителей по ID (первые в сете)
+    const topViewerIds = [...myViewerIds].slice(0, 20);
+    if (topViewerIds.length === 0) return;
+
+    const followAgg = { channels: {}, categories: {} };
+    let processed = 0;
+
+    for (const vid of topViewerIds) {
+      try {
+        const r = await fetch(workerUrl + '/api/twitch/follows?viewerId=' + vid);
+        if (!r.ok) continue;
+        const d = await r.json();
+        const follows = d.follows || [];
+        const cats = d.categories || {};
+        for (const f of follows) {
+          const login = f.broadcaster_login;
+          if (!followAgg.channels[login]) followAgg.channels[login] = { count: 0, viewers: new Set() };
+          followAgg.channels[login].count++;
+          followAgg.channels[login].viewers.add(vid);
+          const game = cats[f.broadcaster_id] || 'Unknown';
+          if (!followAgg.categories[game]) followAgg.categories[game] = { count: 0, viewers: new Set() };
+          followAgg.categories[game].count++;
+          followAgg.categories[game].viewers.add(vid);
+        }
+        processed++;
+      } catch (e) {}
+    }
+
+    if (processed === 0) return;
+
+    const chans = Object.entries(followAgg.channels).sort((a, b) => b[1].count - a[1].count).slice(0, 30);
+    const cats = Object.entries(followAgg.categories).sort((a, b) => b[1].count - a[1].count).slice(0, 20);
+    const maxChanCount = chans.length ? chans[0][1].count : 1;
+    const maxCatCount = cats.length ? cats[0][1].count : 1;
+
+    let html = '<div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border);margin-top:16px">';
+    html += '<p style="font-size:14px;font-weight:600;margin-bottom:4px">🐦 Из Twitch (фолловеры топ-' + processed + ' зрителей)</p>';
+    html += '<p class="muted" style="font-size:12px;margin-bottom:12px">Каналы, на которые подписаны зрители @' + login + ' (данные из Twitch API)</p>';
+
+    if (chans.length) {
+      html += '<div style="display:grid;gap:6px;margin-bottom:16px">';
+      for (const [ch, s] of chans.slice(0, 20)) {
+        const bw = Math.round(s.count / maxChanCount * 100);
+        html += '<div style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid var(--border);display:flex;align-items:center;gap:10px">';
+        html += '<span style="font-size:13px;font-weight:600;min-width:110px">@' + ch + '</span>';
+        html += '<div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:' + bw + '%;border-radius:3px;background:linear-gradient(90deg,#38bdf8,#06b6d4)"></div></div>';
+        html += '<span style="font-size:12px;color:#38bdf8;min-width:30px;text-align:right">' + s.count + '</span>';
+        html += '<span style="font-size:11px;color:var(--muted)">' + s.viewers.size + ' зрит.</span></div>';
+      }
+      html += '</div>';
+    }
+
+    if (cats.length) {
+      html += '<p style="font-size:13px;font-weight:600;margin:8px 0">🎮 Категории (из фолловеров):</p>';
+      html += '<div style="display:grid;gap:6px">';
+      for (const [g, s] of cats.slice(0, 15)) {
+        const bw = Math.round(s.count / maxCatCount * 100);
+        html += '<div style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid var(--border);display:flex;align-items:center;gap:10px">';
+        html += '<span style="font-size:13px;min-width:110px">🎮 ' + g + '</span>';
+        html += '<div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:' + bw + '%;border-radius:2px;background:linear-gradient(90deg,#06b6d4,#38bdf8)"></div></div>';
+        html += '<span style="font-size:12px;color:#38bdf8;min-width:30px;text-align:right">' + s.count + '</span></div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    const section = container.querySelector('#twitchFollowsSection');
+    if (section) {
+      section.style.display = 'block';
+      section.innerHTML = html;
+    }
+  } catch (e) {
+    // silently fail
+  }
+}
+
+async function showViewerWatching(login) {
+  const resultDiv = document.getElementById('viewerWatchingResult');
+  const input = document.getElementById('viewerWatchSearch');
+  const viewerLogin = input?.value.trim().toLowerCase();
+  if (!viewerLogin) { resultDiv.innerHTML = '<p class="muted">Введи логин зрителя</p>'; return; }
+  resultDiv.innerHTML = '<p class="muted">⏳ Поиск...</p>';
+  try {
+    const allHistorySnap = await db.ref('viewer-history').once('value');
+    const allHistory = allHistorySnap.val() || {};
+    let viewerId = null;
+    const seenIn = [];
+    for (const [ch, viewers] of Object.entries(allHistory)) {
+      for (const [vid, v] of Object.entries(viewers)) {
+        if ((v.login || '').toLowerCase() === viewerLogin) {
+          viewerId = vid;
+          seenIn.push(ch);
+          break;
+        }
+      }
+    }
+    if (!viewerId) {
+      resultDiv.innerHTML = '<p class="muted">❌ Зритель не найден в истории</p>';
+      return;
+    }
+
+    // Категории из стримов каналов где его видели
+    const catCount = {};
+    const chSeenData = [];
+    for (const ch of seenIn) {
+      try {
+        const snap = await db.ref('viewer-history/' + ch + '/' + viewerId).once('value');
+        const vData = snap.val();
+        if (!vData) continue;
+        chSeenData.push({ channel: ch, firstSeen: vData.firstSeen, lastSeen: vData.lastSeen || vData.firstSeen });
+
+        const chSnap = await db.ref('stream-chunks/' + ch).once('value');
+        const chVal = chSnap.val() || {};
+        for (const ds of Object.keys(chVal)) {
+          for (const ts of Object.keys(chVal[ds])) {
+            const c = chVal[ds][ts];
+            const tsN = Number(ts);
+            if (tsN >= vData.firstSeen && tsN <= (vData.lastSeen || vData.firstSeen)) {
+              const game = c.game || 'Unknown';
+              if (!catCount[game]) catCount[game] = { mins: 0, channels: new Set() };
+              catCount[game].mins += c.durationMins || 15;
+              catCount[game].channels.add(ch);
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const cats = Object.entries(catCount).sort((a, b) => b[1].mins - a[1].mins);
+
+    let html = '<div style="margin-top:12px;padding:14px;border-radius:12px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.15)">';
+    html += '<p style="font-weight:600;margin-bottom:8px">👤 @' + viewerLogin + '</p>';
+    html += '<p class="muted" style="font-size:12px;margin-bottom:8px">Замечен в каналах: <b>' + seenIn.join(', ') + '</b></p>';
+
+    if (chSeenData.length > 0) {
+      html += '<div style="display:grid;gap:4px;margin:8px 0;font-size:12px;color:var(--muted)">';
+      for (const s of chSeenData) {
+        const f = new Date(s.firstSeen).toLocaleDateString('ru-RU');
+        const l = new Date(s.lastSeen).toLocaleDateString('ru-RU');
+        html += '<div>@' + s.channel + ' — ' + f + ' → ' + l + '</div>';
+      }
+      html += '</div>';
+    }
+
+    if (cats.length) {
+      html += '<p style="font-size:13px;font-weight:600;margin:12px 0 8px">📺 Смотрит категории:</p>';
+      html += '<div style="display:grid;gap:6px">';
+      const maxMins = cats[0][1].mins;
+      for (const [g, s] of cats.slice(0, 10)) {
+        const bw = Math.round(s.mins / maxMins * 100);
+        html += '<div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.03);font-size:13px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
+        html += '<span>' + g + '</span>';
+        html += '<span class="muted">' + Math.floor(s.mins / 60) + 'ч · ' + s.channels.size + ' каналов</span></div>';
+        html += '<div style="height:3px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden"><div style="height:100%;width:' + bw + '%;border-radius:2px;background:#a855f7"></div></div></div>';
+      }
+      html += '</div>';
+    } else {
+      html += '<p class="muted" style="margin-top:8px">Нет данных о просмотренных категориях</p>';
+    }
+    html += '</div>';
+    resultDiv.innerHTML = html;
+  } catch (e) {
+    resultDiv.innerHTML = '<p class="muted">❌ Ошибка: ' + e.message + '</p>';
+  }
 }
