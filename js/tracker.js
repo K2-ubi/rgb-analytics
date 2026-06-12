@@ -890,6 +890,7 @@ function renderTrackerStats(login, userId) {
     for (const dateStr of Object.keys(chunks)) {
       const dayChunks = chunks[dateStr];
       let daySnapViewers = [], daySnapPeak = 0;
+      let dayMaxDuration = 0, dayChunkCount = 0;
       for (const ts of Object.keys(dayChunks)) {
         const c = dayChunks[ts];
         if (c.source === 'sullygnome-csv') {
@@ -901,9 +902,16 @@ function renderTrackerStats(login, userId) {
         } else {
           daySnapViewers.push(c.viewers || 0);
           if ((c.viewers || 0) > daySnapPeak) daySnapPeak = c.viewers || 0;
-          totalMinutes += c.durationMins || 15; totalWatchTime += c.watchTimeMins || 0;
+          if (c.durationMins && c.durationMins > dayMaxDuration) dayMaxDuration = c.durationMins;
+          dayChunkCount++;
+          totalWatchTime += c.watchTimeMins || 0;
           totalFollowers += c.followersGained || 0; if (c.game) allGames.add(c.game);
         }
+      }
+      if (dayMaxDuration > 0) {
+        totalMinutes += dayMaxDuration;
+      } else if (dayChunkCount > 0) {
+        totalMinutes += dayChunkCount * 15;
       }
       if (daySnapViewers.length) {
         snapDays++; snapViewerSum += daySnapViewers.reduce((a, b) => a + b, 0);
