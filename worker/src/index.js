@@ -252,7 +252,7 @@ async function proxyAsBot(url, env, path, corsHeaders) {
   const q = new URLSearchParams(url.search);
   q.delete('bot');
   const botId = await env.KV.get('bot_id' + sfx);
-  if (botId && path === '/chat/chatters') q.set('moderator_id', botId);
+  if (botId && !q.has('moderator_id') && (path === '/chat/chatters' || path === '/channels/followers')) q.set('moderator_id', botId);
   const r = await fetch(TWITCH_API + path + '?' + q, {
     headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': env.BOT_CLIENT_ID },
   });

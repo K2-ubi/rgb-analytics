@@ -30,6 +30,26 @@ async function twitchApiFetch(path, params) {
   return res.ok ? res.json() : null;
 }
 
+async function fetchFollowers(broadcasterId, moderatorId) {
+  const wu = await getWorkerUrl();
+  if (wu) {
+    try {
+      const url = wu + '/api/twitch/followers?broadcaster_id=' + broadcasterId + '&moderator_id=' + moderatorId + '&first=1';
+      const res = await fetch(url);
+      if (res.ok) { const data = await res.json(); return data.total || 0; }
+    } catch (e) {}
+  }
+  const token = localStorage.getItem('twitchAccessToken');
+  if (!token) return 0;
+  try {
+    const res = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + broadcasterId + '&moderator_id=' + moderatorId + '&first=1', {
+      headers: { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID }
+    });
+    if (res.ok) { const data = await res.json(); return data.total || 0; }
+  } catch (e) {}
+  return 0;
+}
+
 async function getTgChatIds() {
   if (_tgChatIds.length) return _tgChatIds;
   try {

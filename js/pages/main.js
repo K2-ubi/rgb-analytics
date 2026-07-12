@@ -101,15 +101,12 @@ async function loadTwitchUsers(force) {
     });
   }
 
-  // Фолловеры — через бота или токен пользователя
-  const botToken = await getBotToken();
-  const modId = botToken?.id || currentTwitchUser?.id || '';
+  // Фолловеры — через worker proxy (использует токен бота сервер-side) или прямой вызов
+  const modId = currentTwitchUser?.id || '';
   if (modId) {
     await Promise.all(members.filter(m => m.twitchId).map(async (m) => {
       try {
-        const fHdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-        const fRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + m.twitchId + '&moderator_id=' + modId + '&first=1', { headers: fHdrs });
-        if (fRes.ok) { const fData = await fRes.json(); m.followers = fData.total || 0; }
+        m.followers = await fetchFollowers(m.twitchId, modId);
       } catch (e) {}
     }));
   }
@@ -186,14 +183,11 @@ async function openCreator(name) {
     const data = await res.json();
     user = data.data[0];
     if (user) {
-      const botToken = await getBotToken();
       const modId = currentTwitchUser?.id || user.id;
-      const fModId = botToken?.id || modId;
-      const fHdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-      const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + fModId + '&first=1', { headers: fHdrs });
-      if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
+      followers = await fetchFollowers(user.id, modId);
       _creatorFollowersCache[name] = followers;
-      const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, { headers: fHdrs });
+      const hdrs = { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+      const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, { headers: hdrs });
       const stData = await stRes.json();
       stream = stData.data && stData.data[0] ? stData.data[0] : null;
     }
@@ -773,15 +767,14 @@ async function renderMyProfile() {
   let followers = 0;
   let streamInfo = null;
   try {
-    const botToken = await getBotToken();
-    const fModId = botToken?.id || user.id;
-    const fHdrs = botToken ? { 'Authorization': 'Bearer ' + botToken.token, 'Client-Id': botToken.clientId || TWITCH_CLIENT_ID } : { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
-    const flRes = await fetch('https://api.twitch.tv/helix/channels/followers?broadcaster_id=' + user.id + '&moderator_id=' + fModId + '&first=1', { headers: fHdrs });
-    if (flRes.ok) { const flData = await flRes.json(); followers = flData.total || 0; }
+    followers = await fetchFollowers(user.id, user.id);
     _creatorFollowersCache[user.login] = followers;
-    const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, { headers: fHdrs });
-    const stData = await stRes.json();
-    streamInfo = stData.data && stData.data[0] ? stData.data[0] : null;
+    const hdrs = { 'Authorization': 'Bearer ' + token, 'Client-Id': TWITCH_CLIENT_ID };
+    const stRes = await fetch('https://api.twitch.tv/helix/streams?user_id=' + user.id, { headers: hdrs });
+    if (stRes.ok) {
+      const stData = await stRes.json();
+      streamInfo = stData.data && stData.data[0] ? stData.data[0] : null;
+    }
   } catch (e) {}
   const isLive = streamInfo ? 'Online' : 'Offline';
   const gameName = streamInfo ? streamInfo.game_name : '—';
