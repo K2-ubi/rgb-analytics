@@ -187,7 +187,7 @@ async function loadUsersList() {
       if (roles.admin) tags.push('<span class="tag" style="color:#fbbf24;background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.22)">Admin</span>');
       if (roles.squad) tags.push('<span class="tag" style="color:#4ade80;background:rgba(74,222,128,.13);border-color:rgba(74,222,128,.22)">Squad</span>');
       if (roles.academy) tags.push('<span class="tag" style="color:#a855f7;background:rgba(168,85,247,.13);border-color:rgba(168,85,247,.22)">Academy</span>');
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.055);margin-top:8px"><div><b>' + login + '</b><p class="muted" style="font-size:13px">' + (u.displayName || '') + '</p></div><div style="display:flex;gap:6px">' + (tags.length ? tags.join('') : '<span class="tag">user</span>') + '</div></div>';
+      return '<div onclick="editRolesFor(\'' + login + '\')" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-radius:16px;background:rgba(255,255,255,.055);margin-top:8px;cursor:pointer;transition:background .15s" onmouseover="this.style.background=\'rgba(255,255,255,.09)\'" onmouseout="this.style.background=\'rgba(255,255,255,.055)\'"><div><b>' + login + '</b><p class="muted" style="font-size:13px">' + (u.displayName || '') + '</p></div><div style="display:flex;gap:6px;align-items:center">' + (tags.length ? tags.join('') : '<span class="tag">user</span>') + '<span style="color:var(--muted);font-size:12px;margin-left:6px">✏️</span></div></div>';
     }).join('');
   } catch (e) { el.innerHTML = '<p class="muted">Ошибка загрузки</p>'; }
 }
@@ -291,17 +291,40 @@ async function unbanIP(key) {
   }
 }
 
+async function editRolesFor(login) {
+  document.getElementById('adminUsername').value = login;
+  document.querySelectorAll('#adminPanel input[type=checkbox]').forEach(c => c.checked = false);
+  try {
+    const snap = await db.ref('twitch-users/' + login + '/roles').once('value');
+    const roles = snap.val() || {};
+    const legacy = await db.ref('twitch-users/' + login + '/role').once('value');
+    const legacyRole = legacy.val();
+    if (roles.admin || legacyRole === 'admin') document.getElementById('chkAdmin').checked = true;
+    if (roles.squad || legacyRole === 'squad') document.getElementById('chkSquad').checked = true;
+    if (roles.academy || legacyRole === 'academy') document.getElementById('chkAcademy').checked = true;
+    const r = document.getElementById('adminResult');
+    r.innerHTML = '<p style="color:#22d3ee">✏️ Редактирование @' + login + ' — отметь нужные роли и нажми «Назначить роли»</p>';
+    const input = document.getElementById('adminUsername');
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input.focus();
+  } catch (e) {}
+}
+
 async function assignRole() {
   const username = document.getElementById('adminUsername').value.trim().toLowerCase();
   const result = document.getElementById('adminResult');
   if (!username) { result.innerHTML = '<p style="color:#ef4444">Введите Twitch username</p>'; return; }
-  const roles = {};
+  const roles = { admin: null, squad: null, academy: null };
   if (document.getElementById('chkAdmin').checked) roles.admin = true;
   if (document.getElementById('chkSquad').checked) roles.squad = true;
   if (document.getElementById('chkAcademy').checked) roles.academy = true;
   try {
     await adminProxy('PATCH', 'twitch-users/' + username + '/roles', roles);
-    const label = Object.keys(roles).length ? Object.keys(roles).join(', ') : 'user';
+    const hasAny = roles.admin || roles.squad || roles.academy;
+    if (!hasAny) {
+      await adminProxy('PATCH', 'twitch-users/' + username, { role: null });
+    }
+    const label = hasAny ? [roles.admin && 'Admin', roles.squad && 'Squad', roles.academy && 'Academy'].filter(Boolean).join(', ') : 'user';
     result.innerHTML = '<p style="color:#4ade80">Роли "' + label + '" назначены для ' + username + '</p>';
     document.getElementById('adminUsername').value = '';
     document.querySelectorAll('#adminPanel input[type=checkbox]').forEach(c => c.checked = false);
