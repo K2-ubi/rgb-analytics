@@ -22,15 +22,53 @@ if (!FIREBASE_SECRET || !SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1);
 }
 
-function dayStr(offsetDays = 0, ts = Date.now()) {
-  const d = new Date(ts + offsetDays * 86400000);
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+// FIREBASE_SECRET может быть:
+//  - base64 JSON сервис-аккаунта Firebase (начинается с "ewog" и содержит "service_account") → firebase-admin SDK
+//  - обычный RTDB database secret → REST ?auth=
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getDatabase } from 'firebase-admin/database';
+
+let _rtdb = null;
+function rtdb() {
+  if (_rtdb) return _rtdb;
+  let secret = FIREBASE_SECRET;
+  let sa = null;
+  try {
+    const parsed = JSON.parse(Buffer.from(FIREBASE_SECRET, 'base64').toString('utf-8'));
+    if (parsed && parsed.type === 'service_account') sa = parsed;
+  } catch (e) {}
+  if (sa) {
+    if (!getApps().length) {
+      initializeApp({ credential: cert(sa), databaseURL: DB_BASE });
+    }
+    _rtdb = getDatabase();
+  } else {
+    if (secret.startsWith('{')) secret = Buffer.from(secret).toString('base64');
+    if (!getApps().length) {
+      initializeApp({ databaseURL: DB_BASE });
+    }
+    _rtdb = getDatabase().ref();
+    _rtdb._auth = secret;
+  }
+  return _rtdb;
 }
 
 async function fbGet(path) {
-  const r = await fetch(`${DB_BASE}/${path}.json?auth=${FIREBASE_SECRET}`, { signal: AbortSignal.timeout(30000) });
-  if (!r.ok) throw new Error(`FB GET ${path}: ${r.status}`);
-  return r.json();
+  const db = rtdb();
+  if (db._auth) {
+    // RTDB database secret: REST ?auth=
+    const r = await fetch(`${DB_BASE}/${path}.json?auth=${encodeURIComponent(db._auth)}`, { signal: AbortSignal.timeout(30000) });
+    if (!r.ok) throw new Error(`FB GET ${path}: ${r.status}`);
+    return r.json();
+  }
+  // firebase-admin SDK (сервис-аккаунт)
+  const snap = await db.ref(path).once('value');
+  return snap.val();
+}
+
+function dayStr(offsetDays = 0, ts = Date.now()) {
+  const d = new Date(ts + offsetDays * 86400000);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 async function sbUpsert(table, rows) {
