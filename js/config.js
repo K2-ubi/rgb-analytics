@@ -27,12 +27,12 @@ const BOT_INFO_TTL = 120000;
 
 // Supabase (почва для перехода). Когда проект готов — впиши url и anonKey,
 // включи enabled: true, и dataLayer сам переключится на чтение из PostgREST.
-// Подробности: SUPABASE-MIGRATION.md, supabase/schema.sql.
+// DDL: supabase/schema.sql. Синк: scripts/sync-rtdb-to-supabase.js.
 window.CONFIG = {
   supabase: {
-    enabled: false,
-    url: '',
-    anonKey: ''
+    enabled: true,
+    url: 'https://rnoufrqqrgpanngkyciq.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJub3VmcnFxcmdwYW5uZ2t5Y2lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1NTk0ODAsImV4cCI6MjEwNTEzNTQ4MH0.uTdZDhfCiF0gvv_ANaHCMso_Qjn8_2dmTvEDAU0j8DI'
   }
 };
 
