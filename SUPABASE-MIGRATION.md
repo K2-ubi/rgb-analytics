@@ -150,13 +150,43 @@ create table lurker_extra (
   - `insert/update/delete` — только для сервисного ключа ботов (RLS запрещает клиенту)
   - админ-действия (роли) — через отдельную функцию с `security definer` по проверке роли
 
+## Готовые артефакты (leveraged)
+
+- `supabase/schema.sql` — полный DDL: таблицы, индексы, RLS, TTL-функция `cleanup_ttl()`
+- `scripts/sync-rtdb-to-supabase.js` — идемпотентный синк RTDB → Supabase (chat, viewers,
+  viewer_history, raids, twitch_users, stream_chunks, lurker_extra)
+- `js/data-layer.js` — единый слой чтения: провайдер переключается через `window.CONFIG.supabase`
+  (`enabled: true` + url + anonKey), весь фронт читает через этот слой
+- `js/config.js` — блок `window.CONFIG.supabase`, сейчас `enabled: false`
+
 ## План перехода (поэтапно, без даунтайма)
 
-1. `js/data-layer.js` уже вынесен общий доступ на фронте — фронт не знает провайдера.
-2. Поднять Supabase-проект, создать таблицы (DDL выше), включить RLS.
-3. Написать сервис синка: читает RTDB (chat-log, all-viewers, raids) → пишет в Postgres один раз.
-4. Фронт переключается на PostgREST через `dataLayer` (аналогичные методы), RTDB остаётся для записи.
-5. Боты пишут в оба источника на время перехода, потом RTDB отключается.
+1. Создать проект Supabase (app.supabase.com) → вставляем URL проекта.
+2. Прогнать `supabase/schema.sql` в SQL Editor проекта.
+3. Взять из Settings → API: `anon key` (в config.js) и `service_role key` (в синк, секрет).
+4. Запустить разовый синк:
+   ```
+   FIREBASE_SECRET=... SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/sync-rtdb-to-supabase.js
+   ```
+5. Вписать `url` + `anonKey` в `js/config.js`, поставить `enabled: true` — фронт начинает
+   читать из Supabase (чат юзера, рейды и т.п. идут через dataLayer).
+6. Пока боты пишут в RTDB, свежие данные доезжают в Supabase по cron (каждые 5 мин):
+   ```
+   */5 * * * * cd /path && FIREBASE_SECRET=... SUPABASE_URL=... SUPABASE_SERVICE_KEY=... node scripts/sync-rtdb-to-supabase.js
+   ```
+   Скрипт идемпотентный — повторные запуски безопасны.
+7. Когда Supabase показал себя в бою — переключаем запись ботов напрямую (service role)
+   и глушим RTDB.
+
+## Провайдер данных
+
+| Операция | Сейчас (RTDB) | Supabase (PostgREST) |
+|---|---|---|
+| Чат юзера за 2 дня | `chat-log/{day}/{uid}` | `SELECT ... FROM chat_messages WHERE user_id=... AND ts>=...` |
+| Рейды | `raids/{day}` | `SELECT ... FROM raids ORDER BY ts DESC LIMIT 5000` |
+| Каналы юзера | `all-viewers/{uid}/channels` | `viewer_channels` join `viewers` |
+| История | `viewer-history/{ch}/{uid}` | `viewer_history` |
+| Запись ботов | `PATCH ?auth=SECRET` | `POST /rest/v1/...` с service_role |
 
 ## Лимиты и цены (актуально на 2026)
 

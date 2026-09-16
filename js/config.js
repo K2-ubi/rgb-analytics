@@ -25,6 +25,17 @@ const CACHE_TTL = 20000;
 const BOT_CACHE_TTL = 60000;
 const BOT_INFO_TTL = 120000;
 
+// Supabase (почва для перехода). Когда проект готов — впиши url и anonKey,
+// включи enabled: true, и dataLayer сам переключится на чтение из PostgREST.
+// Подробности: SUPABASE-MIGRATION.md, supabase/schema.sql.
+window.CONFIG = {
+  supabase: {
+    enabled: false,
+    url: '',
+    anonKey: ''
+  }
+};
+
 window.__RECAPTCHA_SITE_KEY = RECAPTCHA_SITE_KEY;
 fetch('/api/firebase-config').then(r => r.json()).then(cfg => {
   if (cfg.recaptchaSiteKey && cfg.recaptchaSiteKey !== RECAPTCHA_SITE_KEY) {
