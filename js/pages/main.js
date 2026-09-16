@@ -1080,6 +1080,25 @@ async function runCheckUser() {
         html += '</div></div>';
       }
     }
+    const userChat = await dataLayer.getUserChatByChannel(user.id);
+    if (userChat.length) {
+      const allMessages = userChat.reduce((s, c) => s + c.messages.length, 0);
+      html += '<div style="margin-top:20px"><h3 style="font-size:16px;margin-bottom:12px">💬 Сообщения за последние ' + dataLayer.CHAT_TTL_DAYS + ' суток (' + allMessages + ')</h3><p class="muted" style="font-size:12px;margin-bottom:12px">Автоматически удаляются старше 2 суток</p>';
+      for (const c of userChat) {
+        const channelName = c.displayName || c.channel;
+        const lastT = c.messages.length ? c.messages[c.messages.length - 1].t : 0;
+        const lastStr = lastT ? new Date(lastT).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+        html += '<div style="margin-bottom:14px;padding:12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--border)">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:14px">📺 ' + (channelName || c.channel) + '</b><span class="muted" style="font-size:12px">' + c.messages.length + ' сообщ. · ' + lastStr + '</span></div>';
+        html += '<div style="max-height:220px;overflow-y:auto">';
+        for (const msg of c.messages) {
+          const tStr = msg.t ? new Date(msg.t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+          html += '<div style="padding:3px 0;font-size:13px;line-height:1.5"><span class="muted" style="font-size:11px">' + tStr + '</span> <span style="color:var(--purple);font-weight:600">' + escapeHtml(msg.displayName || '') + ':</span> ' + escapeHtml(msg.m || '') + '</div>';
+        }
+        html += '</div></div>';
+      }
+      html += '</div>';
+    }
     html += '<p class="muted" style="font-size:12px;margin-top:20px">🕐 Проверено: ' + msk().full + '</p></div>';
     result.innerHTML = html;
   } catch (e) {

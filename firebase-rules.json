@@ -1,0 +1,137 @@
+{
+  "rules": {
+    "config": {
+      ".read": "auth.uid !== null",
+      ".write": false,
+      "bot": {
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      },
+      "tg-chat-id": {
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      },
+      "tg-proxy-url": {
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      },
+      "localhost-password": {
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      },
+      "commands": {
+        ".write": "root.child('admins').child(auth.uid).exists()"
+      },
+      "lurker": {
+        ".read": "auth.uid !== null",
+        ".write": "root.child('admins').child(auth.uid).exists()",
+        "status": {
+          ".write": false
+        }
+      }
+    },
+
+    "twitch-users": {
+      ".read": "auth.uid !== null",
+      "$login": {
+        ".validate": "newData.hasChildren(['displayName'])",
+        ".write": "auth.uid !== null && (data.child('roles/admin').val() === true || root.child('admins').child(auth.uid).exists())",
+        "roles": {
+          ".write": "root.child('admins').child(auth.uid).exists()"
+        },
+        "role": {
+          ".write": "root.child('admins').child(auth.uid).exists()"
+        }
+      }
+    },
+
+    "admins": {
+      ".read": "root.child('admins').child(auth.uid).exists()",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+
+    "banned": {
+      ".read": "root.child('admins').child(auth.uid).exists()",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+
+    "iptracker": {
+      ".read": "root.child('admins').child(auth.uid).exists()",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+
+    "stream-chunks": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null",
+      ".indexOn": ["source"],
+      "$login": {
+        "$date": {
+          "$timestamp": {
+            ".validate": "newData.hasChildren(['viewers', 'updatedAt'])"
+          }
+        }
+      }
+    },
+
+    "chat-log": {
+      ".read": "auth.uid !== null",
+      ".write": false
+    },
+
+    "raids": {
+      ".read": "auth.uid !== null",
+      ".write": false
+    },
+
+    "stream-cache": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "twitch-tracker": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "viewer-history": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "all-viewers": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "userStats": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "stats": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "photos": {
+      ".read": "auth.uid !== null",
+      ".write": "root.child('admins').child(auth.uid).exists()"
+    },
+
+    "apitg": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "photoCheck": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "squad": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    },
+
+    "creators": {
+      ".read": "auth.uid !== null",
+      ".write": "auth.uid !== null"
+    }
+  }
+}

@@ -791,6 +791,34 @@ async function openViewerProfile(viewerId) {
     const totalHours = channelDetails.reduce((s, c) => { const d = (c.lastSeen || now) - (c.firstSeen || now); return s + d; }, 0);
     const totalHoursDisplay = Math.floor(totalHours / 3600000);
     const totalMinDisplay = Math.floor((totalHours % 3600000) / 60000);
+    const userChat = await dataLayer.getUserChatByChannel(viewerId);
+    let chatHtml = '';
+    if (userChat.length) {
+      const allMessages = userChat.reduce((s, c) => s + c.messages.length, 0);
+      chatHtml = `
+        <div style="margin-top:16px">
+          <div class="card">
+            <h2 style="font-size:18px">💬 Сообщения за последние ${dataLayer.CHAT_TTL_DAYS} суток (${allMessages})</h2>
+            <p class="muted" style="font-size:13px;margin-bottom:12px">Автоматически удаляются старше 2 суток</p>
+            ${userChat.map(c => {
+              const channelName = c.displayName || c.channel;
+              const lastT = c.messages.length ? c.messages[c.messages.length - 1].t : 0;
+              const lastStr = lastT ? new Date(lastT).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+              return `
+              <div style="margin-bottom:14px;padding:12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--border)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <b style="font-size:14px">📺 ${channelName}</b>
+                  <span class="muted" style="font-size:12px">${c.messages.length} сообщ. · ${lastStr}</span>
+                </div>
+                <div style="max-height:220px;overflow-y:auto">${c.messages.map(msg => {
+                  const tStr = msg.t ? new Date(msg.t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+                  return '<div style="padding:3px 0;font-size:13px;line-height:1.5"><span class="muted" style="font-size:11px">' + tStr + '</span> <span style="color:var(--purple);font-weight:600">' + (msg.displayName || '') + ':</span> ' + escapeHtml(msg.m || '') + '</div>';
+                }).join('')}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+    }
     document.getElementById('creatorPage').innerHTML = `
       <div class="page-card fade">
         <button class="btn" onclick="renderViewersPage()">← Назад к зрителям</button>
@@ -836,6 +864,7 @@ async function openViewerProfile(viewerId) {
               }).join('') + '</tbody></table></div>' : '<p class="muted">Нет данных о каналах</p>'}
             </div>
             ${Object.keys(categories).length ? '<div style="margin-top:16px"><div style="padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--border)"><h3 style="font-size:16px;margin-bottom:12px">🎮 Интересы (категории)</h3><div style="display:flex;flex-wrap:wrap;gap:8px">' + catList.map(([cat, data]) => '<span class="tag" style="font-size:12px;padding:6px 12px;background:rgba(168,85,247,.08);border-color:rgba(168,85,247,.15)">' + cat.slice(0, 30) + ' <span style="color:var(--muted);font-size:11px">(' + (data.count || 0) + ')</span></span>').join('') + '</div></div></div>' : ''}
+            ${chatHtml}
           </div>
         </div>
         <p class="muted" style="font-size:12px;margin-top:20px">🕐 Проверено: ${msk().full}</p>

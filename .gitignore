@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.local
+.DS_Store
+*.log
+serviceAccountKey.json
+worker/.wrangler/
+.idea/
+/worker/
+/worker/src/
+lurker-state.json
+/obs-plugin/

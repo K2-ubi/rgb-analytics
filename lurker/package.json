@@ -1,0 +1,10 @@
+{
+  "name": "rgb-lurker",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "IRC lurker bot for RGB Analytics — сидит в чатах стримеров сквада для продления серии просмотров",
+  "main": "index.js",
+  "dependencies": {
+    "tmi.js": "^1.8.5"
+  }
+}

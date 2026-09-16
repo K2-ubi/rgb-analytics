@@ -1,0 +1,15 @@
+{
+  "name": "rgb-lurker-render",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "RGB Lurker — сидит в чатах стримеров через Web Service Render",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "tmi.js": "^1.8.5",
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  }
+}
